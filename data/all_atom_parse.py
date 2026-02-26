@@ -735,7 +735,10 @@ def dump_structure_data(struct_data: StructureData, path: str):
             return np.array([value], dtype=object)
         if isinstance(value, list):
             try:
-                return np.array(value)
+                with np.warnings.catch_warnings():
+                    np.warnings.simplefilter("ignore", np.VisibleDeprecationWarning)
+                    arr = np.array(value)
+                return arr
             except Exception:
                 return np.array(value, dtype=object)
         return value
