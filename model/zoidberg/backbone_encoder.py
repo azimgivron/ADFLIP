@@ -2,17 +2,86 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-from data.all_atom_parse import (
-    num_residue_tokens,
-    num_element_tokens,
-    num_protein_tokens,
-)
-from model.zoidberg.utils import FourierEmbedding, gather_residue_average_from_atoms
+from data.all_atom_parse import num_residue_tokens
+from model.zoidberg.utils import FourierEmbedding
 from model.zoidberg.transition_block import TransitionBlock
-from model.MPNN import gather_edges, PositionalEncodings, DihedralFeatures
 from torch.nn import functional as F
 from torch_geometric.utils import to_dense_batch
 
+
+def gather_edges(edges, neighbor_idx):
+    # Features [B,N,N,C] at Neighbor indices [B,N,K] => Neighbor features [B,N,K,C]
+    neighbors = neighbor_idx.unsqueeze(-1).expand(-1, -1, -1, edges.size(-1))
+    edge_features = torch.gather(edges, 2, neighbors)
+    return edge_features
+
+
+class PositionalEncodings(torch.nn.Module):
+    def __init__(self, num_embeddings, max_relative_feature=32):
+        super(PositionalEncodings, self).__init__()
+        self.num_embeddings = num_embeddings
+        self.max_relative_feature = max_relative_feature
+        self.linear = torch.nn.Linear(2 * max_relative_feature + 1 + 1, num_embeddings)
+
+    def forward(self, offset, mask):
+        d = torch.clip(
+            offset + self.max_relative_feature, 0, 2 * self.max_relative_feature
+        ) * mask + (1 - mask) * (2 * self.max_relative_feature + 1)
+        d_onehot = torch.nn.functional.one_hot(d, 2 * self.max_relative_feature + 1 + 1)
+        E = self.linear(d_onehot.float())
+        return E
+
+
+
+class DihedralFeatures(nn.Module):
+    def __init__(self, node_embed_dim):
+        """
+        Embed dihedral angle features.
+        adapt from: https://github.com/facebookresearch/esm
+        """
+        super(DihedralFeatures, self).__init__()
+        # 3 dihedral angles; sin and cos of each angle
+        node_in = 6
+        # Normalization and embedding
+        self.node_embedding = nn.Linear(node_in, node_embed_dim, bias=True)
+
+    def forward(self, X):
+        """Featurize coordinates as an attributed graph"""
+        V = self._dihedrals(X)
+        V = self.node_embedding(V)
+        return V
+
+    @staticmethod
+    def _dihedrals(X, eps=1e-7, return_angles=False):
+        # First 3 coordinates are N, CA, C
+        X = X[:, :, :3, :].reshape(X.shape[0], 3 * X.shape[1], 3)
+
+        # Shifted slices of unit vectors
+        dX = X[:, 1:, :] - X[:, :-1, :]
+        U = F.normalize(dX, dim=-1)
+        u_2 = U[:, :-2, :]
+        u_1 = U[:, 1:-1, :]
+        u_0 = U[:, 2:, :]
+        # Backbone normals
+        n_2 = F.normalize(torch.cross(u_2, u_1, dim=-1), dim=-1)
+        n_1 = F.normalize(torch.cross(u_1, u_0, dim=-1), dim=-1)
+
+        # Angle between normals
+        cosD = (n_2 * n_1).sum(-1)
+        cosD = torch.clamp(cosD, -1 + eps, 1 - eps)
+        D = torch.sign((u_2 * n_1).sum(-1)) * torch.acos(cosD)
+
+        # This scheme will remove phi[0], psi[-1], omega[-1]
+        D = F.pad(D, (1, 2), "constant", 0)
+        D = D.view((D.size(0), int(D.size(1) / 3), 3))
+        phi, psi, omega = torch.unbind(D, -1)
+
+        if return_angles:
+            return phi, psi, omega
+
+        # Lift angle representations to the circle
+        D_features = torch.cat((torch.cos(D), torch.sin(D)), 2)
+        return D_features
 
 class ProteinFeatures(torch.nn.Module):
     def __init__(
@@ -851,6 +920,17 @@ def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
     '''
     device = CB.device
     batch_size = CB.shape[0]
+    if (
+        mask.shape[0] != batch_size
+        or Y.shape[0] != batch_size
+        or Y_t.shape[0] != batch_size
+        or Y_m.shape[0] != batch_size
+    ):
+        raise ValueError(
+            "Batch size mismatch in get_nearest_neighbours: "
+            f"CB={batch_size}, mask={mask.shape[0]}, Y={Y.shape[0]}, "
+            f"Y_t={Y_t.shape[0]}, Y_m={Y_m.shape[0]}"
+        )
     
     mask_CBY = mask[:, :, None] * Y_m[:, None, :]  # [B,A,C]
     L2_AB = torch.sum((CB[:, :, None, :] - Y[:, None, :, :]) ** 2, -1)  # [B,A,C]
@@ -893,35 +973,29 @@ def compute_ligand_atom(input_dict, batch_dict,number_ligand_atom=10,cutoff_for_
     ligandmpnn input features
     '''
     device = input_dict["X"].device
-    non_protein_atom_postition = batch_dict['position'][~batch_dict['is_protein']]
-    non_protein_atom_element = batch_dict['element_index'][~batch_dict['is_protein']]
-    non_protein_batch_index = batch_dict['batch_index'][~batch_dict['is_protein']]
-    if non_protein_batch_index.shape[0] != 0:
-        if non_protein_batch_index.max() + 1 != batch_dict["residue_token"].size(0):
-            non_protein_batch_index = non_protein_batch_index - non_protein_batch_index.min()
+    batch_size = input_dict["X"].size(0)
+    all_batch_index = batch_dict["batch_index"].long()
+    if all_batch_index.numel() == 0:
+        return input_dict
+    all_batch_index = all_batch_index - all_batch_index.min()
 
-    
-    batch_size = batch_dict['residue_token'].size(0)
-    unique_batch_index = torch.unique(non_protein_batch_index)  
-    Y_,Y_mask_ = to_dense_batch(non_protein_atom_postition, non_protein_batch_index)
-    Y_t_,_ = to_dense_batch(non_protein_atom_element, non_protein_batch_index)
-    
-    
-    if (unique_batch_index.max() + 1) != batch_size:
-        Y_,Y_mask_ =to_dense_batch(non_protein_atom_postition, non_protein_batch_index)
-        Y_t_,_ = to_dense_batch(non_protein_atom_element, non_protein_batch_index)
-        Y = torch.zeros([batch_size, Y_.shape[1], 3], dtype=torch.float32,device=device)
-        Y_t = torch.zeros([batch_size, Y_t_.shape[1]], dtype=Y_t_.dtype,device=device)
-        Y_mask = torch.zeros([batch_size, Y_mask_.shape[1]], dtype=torch.int32,device = device).bool()
-        
-        copy_index = torch.arange(0,unique_batch_index[-1]+1,device=device)
-        Y[copy_index] = Y_
-        Y_t[copy_index] = Y_t_
-        Y_mask[copy_index] = Y_mask_
-    else:
-        Y = Y_
-        Y_t = Y_t_
-        Y_mask = Y_mask_
+    non_protein_mask = ~batch_dict["is_protein"].bool()
+    non_protein_atom_postition = batch_dict["position"][non_protein_mask]
+    non_protein_atom_element = batch_dict["element_index"][non_protein_mask]
+    non_protein_batch_index = all_batch_index[non_protein_mask]
+    if non_protein_batch_index.numel() == 0:
+        return input_dict
+
+    Y, Y_mask = to_dense_batch(
+        non_protein_atom_postition,
+        non_protein_batch_index,
+        batch_size=batch_size,
+    )
+    Y_t, _ = to_dense_batch(
+        non_protein_atom_element,
+        non_protein_batch_index,
+        batch_size=batch_size,
+    )
     
     N = input_dict["X"][:, :,0, :]
     CA = input_dict["X"][:,:, 1, :]
@@ -946,45 +1020,43 @@ def compute_ligand_atom(input_dict, batch_dict,number_ligand_atom=10,cutoff_for_
 
 
 def dense_input(batch_dict,number_ligand_atom=False,mpnn_cutoff=False):
-    protein_mask = batch_dict["is_protein"]
-    backbone_mask = batch_dict["is_backbone"]
-    not_pad_mask = batch_dict["not_pad_mask"]
-    if batch_dict['is_backbone'].sum() % 4 != 0:
-        backbone = batch_dict['is_backbone'].clone()
-        _, counts = torch.unique_consecutive(batch_dict['residue_index'][batch_dict["is_backbone"]], return_counts=True)
-        count_mask = counts == 4
-        
-        check_mask = torch.repeat_interleave(count_mask, counts)
-        new_backbone_mask = torch.ones_like(backbone, dtype=torch.bool, device=backbone.device)
-        new_backbone_mask[backbone] = check_mask
+    batch_size = batch_dict["residue_token"].size(0)
+    all_batch_index = batch_dict["batch_index"].long()
+    if all_batch_index.numel() == 0:
+        raise ValueError("Empty batch_index in dense_input")
+    all_batch_index = all_batch_index - all_batch_index.min()
 
+    protein_mask = batch_dict["is_protein"].bool()
+    backbone_atom_mask = batch_dict["is_backbone"].bool()
+    not_pad_mask = batch_dict["not_pad_mask"].bool()
+    backbone_mask = batch_dict.get("backbone_mask", None)
+    if backbone_mask is not None:
+        backbone_mask = backbone_mask.bool()
+    else:
+        backbone_mask = torch.ones_like(backbone_atom_mask, dtype=torch.bool)
 
-        overall_mask = protein_mask & new_backbone_mask & not_pad_mask
-
-    overall_mask = protein_mask & backbone_mask & not_pad_mask
+    center_mask = batch_dict["is_center"].bool() & backbone_mask
+    overall_mask = protein_mask & backbone_atom_mask & not_pad_mask & backbone_mask
     backbone_positions = batch_dict["position"][overall_mask]
 
-    flatten_pos = batch_dict['position'][batch_dict['is_center']].unsqueeze(1).repeat(1,4,1).view(-1,3)
-    flatten_protein_mask = overall_mask[batch_dict['is_center']].unsqueeze(1).repeat(1,4).view(-1)
+    flatten_pos = batch_dict["position"][center_mask].unsqueeze(1).repeat(1,4,1).view(-1,3)
+    flatten_protein_mask = overall_mask[center_mask].unsqueeze(1).repeat(1,4).view(-1)
     flatten_pos[flatten_protein_mask] = backbone_positions
-    flatten_batch_index = batch_dict['batch_index'][batch_dict['is_center']].unsqueeze(1).repeat(1,4).view(-1)
-    flatten_chain_id = batch_dict['chain_id'][batch_dict['is_center']].unsqueeze(1).repeat(1,4).view(-1)
-    flatten_residue_index = batch_dict['residue_index'][batch_dict['is_center']].unsqueeze(1).repeat(1,4).view(-1)
+    flatten_batch_index = all_batch_index[center_mask].unsqueeze(1).repeat(1,4).view(-1)
+    flatten_chain_id = batch_dict["chain_id"][center_mask].unsqueeze(1).repeat(1,4).view(-1)
+    flatten_residue_index = batch_dict["residue_index"][center_mask].unsqueeze(1).repeat(1,4).view(-1)
 
-
-
-
-    if flatten_batch_index.max() + 1 != batch_dict["residue_token"].size(0):
-        flatten_batch_index = flatten_batch_index - flatten_batch_index.min()
+    if flatten_batch_index.numel() == 0:
+        raise ValueError("No center atoms available after backbone filtering in dense_input")
 
     padded_backbone_positions, padded_backbone_positions_mask = to_dense_batch(
-        flatten_pos, flatten_batch_index
+        flatten_pos, flatten_batch_index, batch_size=batch_size
     )
     padded_backbone_residue_index, _ = to_dense_batch(
-        flatten_residue_index, flatten_batch_index
+        flatten_residue_index, flatten_batch_index, batch_size=batch_size
     )
     padded_backbone_chain_id, _ = to_dense_batch(
-        flatten_chain_id, flatten_batch_index
+        flatten_chain_id, flatten_batch_index, batch_size=batch_size
     )
 
     input_features = {
@@ -1104,12 +1176,21 @@ class BackboneEncoder(nn.Module):
 
     def forward(self, batch_dict: dict):
 
-        residue_token = batch_dict["residue_token"][ batch_dict["is_center"]  ]
-        batch_idx = batch_dict["batch_index"][batch_dict["is_center"]]
-        if batch_idx.max() + 1 != batch_dict["residue_token"].size(0):
-            batch_idx = batch_idx - batch_idx.min()
+        batch_size = batch_dict["residue_token"].size(0)
+        all_batch_index = batch_dict["batch_index"].long()
+        if all_batch_index.numel() == 0:
+            raise ValueError("Empty batch_index in BackboneEncoder.forward")
+        all_batch_index = all_batch_index - all_batch_index.min()
+
+        center_mask = batch_dict["is_center"].bool()
+        if "backbone_mask" in batch_dict:
+            center_mask = center_mask & batch_dict["backbone_mask"].bool()
+        residue_token = batch_dict["residue_token"][center_mask]
+        batch_idx = all_batch_index[center_mask]
+        if batch_idx.numel() == 0:
+            raise ValueError("No center residues available after backbone filtering")
         padded_residue_token, padded_residue_mask = to_dense_batch(
-            residue_token, batch_idx
+            residue_token, batch_idx, batch_size=batch_size
         )
         B, N = padded_residue_token.size()
         input_features = dense_input(batch_dict, number_ligand_atom=self.number_ligand_atom,mpnn_cutoff = self.mpnn_cutoff)

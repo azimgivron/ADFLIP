@@ -14,10 +14,8 @@ from model.zoidberg.transition_block import TransitionBlock
 from model.zoidberg.utils import (
     gather_residue_average_from_atoms,
     transform_residue_index,
-    StartEndPad,
     FrameAveraging,
 )
-from data.all_atom_parse import num_protein_tokens
 
 
 class TimestepEmbedder(nn.Module):
@@ -87,6 +85,7 @@ class Zoidberg_GNN(nn.Module):
         num_tfmr_heads: int = 0,
         num_tfmr_layers: int = 0,
         mpnn_cutoff: bool = False,
+        output_dim: int = 20,
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -159,11 +158,8 @@ class Zoidberg_GNN(nn.Module):
             )
 
 
-        if output_to_esm:
-            self.layers["start_end_pad"] = StartEndPad(hidden_dim)
 
-        if self.denoiser:
-            self.layers["output"] = nn.Linear(hidden_dim, num_protein_tokens)
+        self.layers["output"] = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, batch_dict: dict, timestep: torch.Tensor):
 
@@ -183,8 +179,11 @@ class Zoidberg_GNN(nn.Module):
         distance_matrix = distance_matrix.reshape(B, N, self.k)
         time_emb = self.time_embedder(timestep * 1000)
         atom_x = self.layers["atom_encoder"](batch_dict)
+        center_mask = batch_dict["is_center"].bool()
+        if "backbone_mask" in batch_dict:
+            center_mask = center_mask & batch_dict["backbone_mask"].bool()
         unique_residue_index = transform_residue_index(
-            batch_dict["residue_index"], batch_dict["not_pad_mask"]&batch_dict["is_center"]
+            batch_dict["residue_index"], batch_dict["not_pad_mask"] & center_mask
         )
         residue_x, E, E_idx, residue_x_pad_mask,residue_context_embedding,Y_nodes, Y_edges, Y_m  = self.backbone_feature(batch_dict)
         frame_pos = self.frame_averaging.create_frame(
@@ -204,7 +203,7 @@ class Zoidberg_GNN(nn.Module):
                 f"atom_to_node_embedder_{i}"
             ](
                 atom_x,
-                batch_dict["is_center"],
+                center_mask,
                 unique_residue_index,
                 batch_dict["not_pad_mask"],
             )
@@ -242,6 +241,51 @@ class Zoidberg_GNN(nn.Module):
                 )
             residue_x_context = self.V_C(residue_x_context)
             residue_x = residue_x + self.V_C_norm(self.dropout(residue_x_context))
+        else:
+            print("No non-protein residue, skip context block")
+
+        # for i in range(self.num_blocks//2,self.num_blocks):
+        #     atom_x = self.layers[f"local_atom_attention_{i}"](
+        #         atom_x,
+        #         knn_graph_indices,
+        #         batch_dict["position"],
+        #         frame_pos,
+        #         distance_matrix,
+        #         batch_dict["not_pad_mask"],
+        #     )
+        #     residue_x_from_atom, residue_mask = self.layers[
+        #         f"atom_to_node_embedder_{i}"
+        #     ](
+        #         atom_x,
+        #         batch_dict["is_center"],
+        #         unique_residue_index,
+        #         batch_dict["not_pad_mask"],
+        #     )
+
+        #     if residue_x.shape != residue_x_from_atom.shape:
+        #         raise ValueError(
+        #             f"Residue shape {residue_x.shape} != {residue_x_from_atom.shape}"
+        #         )
+        #     residue_x, E = self.layers[f"gnn_block_{i}"](
+        #         residue_x,#h_V
+        #         residue_x_from_atom,#h_V_atom
+        #         E,
+        #         E_idx,
+        #         residue_x_pad_mask,
+        #         time=time_emb,
+        #     )
+        #     if i < self.num_blocks - 1 and self.update_atom:
+        #         atom_x = self.layers[f"node_to_atom_embedder_{i}"](
+        #             atom_x,
+        #             residue_x,
+        #             unique_residue_index,
+        #             batch_dict["not_pad_mask"],
+        #         )
+        #         atom_x = self.layers[f"transition_block_{i}"](atom_x)
+
+        
+        
+        
         
         
         #decoder layer
@@ -260,15 +304,9 @@ class Zoidberg_GNN(nn.Module):
         )
         protein_mask = protein_mask.squeeze(-1) > 0.0
         protein_mask = residue_mask * protein_mask
-        if self.output_to_esm:
-            embedding = self.layers["start_end_pad"](
-                residue_x, protein_mask
-            )  # structure embedding fed into esm
-            logits = None
-        else:
-            embedding = residue_x
-            logits = self.layers["output"](residue_x)
-            flatten_logits = logits[protein_mask]
+        embedding = residue_x
+        logits = self.layers["output"](residue_x)
+        flatten_logits = logits[protein_mask]
         return flatten_logits, embedding
 
 
@@ -296,23 +334,3 @@ if __name__ == "__main__":
     time_step = torch.randn(batch_dict["batch_index"].size(0), 1)
     logits, embedding = model(batch_dict, time_step)
     print(logits.shape)
-
-
-# batch_dict['is_protein'] & (batch_dict['is_backbone']) 4 main types of atoms
-# batch_dict['is_protein'] & (~batch_dict['is_backbone']) sidechain atoms
-# batch_dict['residue_index'][batch_dict['is_protein'] & (batch_dict['is_backbone'])][:30]
-# Working?
-# residue_token torch.Size([2, 2705])
-# residue_index torch.Size([2, 2705])
-# residue_atom_index torch.Size([2, 2705])
-# occupancy torch.Size([2, 2705])
-# bfactor torch.Size([2, 2705])
-# batch_index torch.Size([2, 2705])
-# chain_id torch.Size([2, 2705])
-# position torch.Size([2, 2705, 3])
-# element_index torch.Size([2, 2705])
-# is_ion torch.Size([2, 2705])
-# is_protein torch.Size([2, 2705])
-# is_nucleotide torch.Size([2, 2705])
-# is_center torch.Size([2, 2705])
-# is_backbone torch.Size([2, 2705])

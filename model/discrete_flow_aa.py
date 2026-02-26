@@ -1,9 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 import yaml
 import matplotlib.pyplot as plt
-from data.all_atom_parse import residue_tokens, num_protein_tokens, pdb2data,restype_1to3,make_merged_pdb
+from data.all_atom_parse import residue_tokens, pdb2data,restype_1to3,make_merged_pdb,cif_to_pdb
 import os
 from PIPPack.model.modules import PIPPackFineTune
 from PIPPack.inference import replace_protein_sequence, pdbs_from_prediction
@@ -43,9 +44,9 @@ def _is_abnormal_pdb_line(line: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _clean_pdb_file(pdb_file: str) -> None:
-    with open(pdb_file, "r", encoding="utf‑8") as fh:
+    with open(pdb_file, "r", encoding="utf 8") as fh:
         good_lines: List[str] = [ln for ln in fh if not _is_abnormal_pdb_line(ln)]
-    with open(pdb_file, "w", encoding="utf‑8") as fh:
+    with open(pdb_file, "w", encoding="utf 8") as fh:
         fh.writelines(good_lines)
 
 
@@ -108,487 +109,29 @@ class DiscreteFlow_AA(nn.Module):
 
     def compute_loss(self, logits, data):
         if self.label_smoothing:
-            target = data["residue_token"][data["is_center"] & data["is_protein"]]
+            center_mask = data["is_center"] & data["is_protein"]
+            if "backbone_mask" in data:
+                center_mask = center_mask & data["backbone_mask"]
+            target = data["residue_token"][center_mask]
+            mask_for_loss = data['mask_chain'][center_mask]
+            if mask_for_loss.sum() == 0:
+                return torch.tensor(0.0).to(logits.device)
+            # print('mask_for_loss:',mask_for_loss.sum().item(),mask_for_loss.shape[0])
             S_onehot = F.one_hot(target, num_classes=logits.size(-1)).float()
             S_onehot = S_onehot + 0.1 / float(S_onehot.size(-1))
             S_onehot = S_onehot / S_onehot.sum(-1, keepdim=True)
             log_probs = F.log_softmax(logits, dim=-1)
             loss = -(S_onehot * log_probs).sum(-1)
-            loss_av = torch.sum(loss) / 2000.0 #fixed 
+            loss_av = torch.sum(loss*mask_for_loss) / torch.sum(mask_for_loss)
             return loss_av
         else:
-            target = data["residue_token"][data["is_center"] & data["is_protein"]]
+            center_mask = data["is_center"] & data["is_protein"]
+            if "backbone_mask" in data:
+                center_mask = center_mask & data["backbone_mask"]
+            target = data["residue_token"][center_mask]
             loss = F.cross_entropy(logits, target)
             return loss
 
-    def generate_maskx1(self, data):
-        x1_mask = self.alphabet.get_idx("<mask>") * torch.ones_like(
-            data["esm_batch_tokens"]
-        )  # this keeps x1 as the same dtype as idx
-        cls_mask = data["esm_batch_tokens"] == self.alphabet.get_idx("<cls>")
-        eos_mask = data["esm_batch_tokens"] == self.alphabet.get_idx("<eos>")
-        padding_mask = data["esm_batch_tokens"] == self.alphabet.get_idx("<pad>")
-        x1_mask[cls_mask] = self.alphabet.get_idx("<cls>")
-        x1_mask[eos_mask] = self.alphabet.get_idx("<eos>")
-        x1_mask[padding_mask] = self.alphabet.get_idx("<pad>")
-        return x1_mask
-
-    def test(self, dataloader, time=0.0):
-        device = next(self.model.parameters()).device
-        error = 0
-        total_flatten_logits = torch.tensor([])
-        total_flatten_true = torch.tensor([])
-        total_flatten_interact_non_protein_logits = torch.tensor([])
-        total_flatten_interact_non_protein_true = torch.tensor([])
-
-        self.model.eval()
-        for data in dataloader:
-            try:
-                data = {k: v.to(device) for k, v in data.__dict__.items()}
-                data = {
-                    k: v.float() if v.dtype == torch.float64 else v
-                    for k, v in data.items()
-                }
-                noisy_data = {k: v.clone() for k, v in data.items()}
-                noisy_data["residue_token"] = data["noisy_residue_token"]
-                times = data["time_step"]
-                flatten_logits, _ = self.model(noisy_data, times)
-
-                flatten_true = data["residue_token"][
-                    data["is_center"] & data["is_protein"]
-                ]
-
-                interact_non_protein = data["interact_non_protein_res"][
-                    data["is_center"] & data["is_protein"]
-                ].cpu()
-
-                flatten_logits = flatten_logits.detach().cpu()
-                flatten_true = flatten_true.detach().cpu()
-                total_flatten_logits = torch.cat((total_flatten_logits, flatten_logits))
-                total_flatten_true = torch.cat((total_flatten_true, flatten_true))
-
-                total_flatten_interact_non_protein_logits = torch.cat((total_flatten_interact_non_protein_logits, flatten_logits[interact_non_protein]))
-                total_flatten_interact_non_protein_true = torch.cat((total_flatten_interact_non_protein_true, flatten_true[interact_non_protein]))
-                del flatten_logits, flatten_true
-
-
-
-            except Exception as e:
-                error +=1
-                print(f"Error in test in {e}")
-                
-        print(f' fail to predict {error}/{len(dataloader)} samples')
-        loss = F.cross_entropy(total_flatten_logits, total_flatten_true.long())
-        accuracy = (
-            (total_flatten_logits.argmax(dim=-1) == total_flatten_true).float().mean()
-        )
-        perplexity = torch.exp(loss)
-
-        interact_non_protein_loss = F.cross_entropy(total_flatten_interact_non_protein_logits, total_flatten_interact_non_protein_true.long())
-        interact_non_protein_accuracy = (
-            (total_flatten_interact_non_protein_logits.argmax(dim=-1) == total_flatten_interact_non_protein_true).float().mean()
-        )
-        interact_non_protein_perplexity = torch.exp(interact_non_protein_loss)
-
-
-        del total_flatten_logits, total_flatten_true,total_flatten_interact_non_protein_logits, total_flatten_interact_non_protein_true
-        return loss, accuracy, perplexity,interact_non_protein_accuracy, interact_non_protein_perplexity
-
-    def corrupt_data_by_sample(self, data, time, sample):
-        """
-        corrupt data for sampling
-        """
-
-        device = data["residue_token"].device
-        noisy_data = {k: v.squeeze().clone() for k, v in data.items()}
-        noisy_data["residue_token"][
-            noisy_data["is_center"] & noisy_data["is_protein"]
-        ] = sample
-        time = torch.ones((1, 1), device=device) * time
-
-        target = noisy_data["residue_token"][noisy_data["is_center"]]
-        target_mask = target == residue_tokens["<MASK>"]
-
-        noisy_residue_token = noisy_data["residue_token"][noisy_data["is_protein"]]
-
-        assert target.shape[0]  > noisy_data["residue_index"][noisy_data["is_protein"]].max().item()
-
-        noisy_residue_token[
-            target_mask[noisy_data["residue_index"][noisy_data["is_protein"]]]
-        ] = residue_tokens["<MASK>"]
-        noisy_data["residue_token"][noisy_data["is_protein"]] = noisy_residue_token
-
-        mask_sidechain = torch.ones_like(noisy_data["residue_token"]).bool()#trigger cuda bug
-        target_mask_sidechain = torch.ones_like(target_mask).bool() 
-        mask_sidechain[~noisy_data["is_backbone"] & noisy_data["is_protein"]] = (
-            ~target_mask[
-                noisy_data["residue_index"][
-                    ~noisy_data["is_backbone"] & noisy_data["is_protein"]
-                ]
-            ]
-        )
-
-        for name, item in noisy_data.items():
-            if name == "time_step":
-                noisy_data[name] = time.view(-1, 1)
-            elif name == "noisy_residue_token" or name == 'interact_non_protein_res' or name == 'interact_ion_res' or name == 'interact_nucleotide_res' or name == 'interact_molecule_res':
-                pass
-            else:
-                noisy_data[name] = item[mask_sidechain].unsqueeze(0)
-
-
-
-        return data, noisy_data
-
-    def sample(self, pdb_path, dt=0.1, argmax_final=True,temp = 0.1,noise=1,mask_interact=False,interact_noise=1):
-        self.model.eval()
-        device = next(self.model.parameters()).device
-        data = pdb2data(pdb_path,device)
-        if 'cif' in pdb_path:
-            import prody
-            sample_save_folder = self.sample_save_path+pdb_path.split('/')[-1].replace('.cif','')
-            os.makedirs(sample_save_folder,exist_ok=True)
-            structure = prody.parseMMCIF(pdb_path)
-            atom = structure.select("not water and not hydrogen")
-            for chain in atom.getHierView():
-                # Split the chain identifier and keep only the letter part
-                chain_id = chain.getChid().split('.')[-1]
-                chain.setChids(chain_id)
-            new_filename = os.path.join(sample_save_folder,pdb_path.split('/')[-1].replace('.cif','.pdb'))
-            
-            prody.proteins.pdbfile.writePDB(new_filename,atom)
-            pdb_path = new_filename
-        else:
-            sample_save_folder = self.sample_save_path+pdb_path.split('/')[-1].replace('.pdb','')
-            os.makedirs(sample_save_folder,exist_ok=True)
-            os.system(f'cp {pdb_path} {sample_save_folder}')
-        true_tokens = data["residue_token"][data["is_center"] & data["is_protein"]]
-        t = 0.0
-        samples = (
-            torch.ones_like(
-                data["residue_token"][data["is_center"] & data["is_protein"]],
-                device=device,
-            ).unsqueeze(0)
-            * residue_tokens["<MASK>"]
-        )
-        B, T = samples.size()
-        interact_res_index = data['residue_index'][data['is_protein']][data['interact_non_protein_res']].unique()
-
-        # samples_time = 0
-        # fig,axis = plt.subplots(10,2,figsize=(5, 10))
-        while t <= 1.0:
-            data, noisy_data = self.corrupt_data_by_sample(data, t, samples)
-            logits, _ = self.model(noisy_data, torch.tensor([[t]], device=device))
-
-            rr = (logits.argmax(dim=1) == true_tokens).sum()/true_tokens.shape[0]
-            print('time:', round(t,3), round(rr.item(),4),'context_num',noisy_data['residue_token'].shape[1])
-            
-
-
-            # print('logits:')
-            # print(t,F.softmax(logits,dim=-1).max(1)[0][:100])
-            # interact_non_protein_res = data['residue_index'][data['is_protein']][data['interact_non_protein_res']].unique()
-            # print('interact_non_protein_res logits')
-            # print(F.softmax(logits,dim=-1)[interact_non_protein_res].max(1)[0])
-
-
-
-            if round(t,3) >= 1.0 or dt >=1.0:
-                if argmax_final:
-                    samples_final = logits.argmax(dim=-1).view(B, T)
-                    samples_mask = samples == residue_tokens["<MASK>"]
-                    samples[samples_mask] = samples_final[samples_mask]
-
-                    # plt.savefig(f'{sample_save_folder}/'+pdb_path.split('/')[-1].replace('.pdb','')+f'_final_{samples_time}.png',dpi=300,bbox_inches='tight')
-                
-                
-                else:
-                    samples_final = torch.multinomial(
-                        F.softmax(logits, dim=-1).view(B * T, -1), num_samples=1
-                    ).view(B, T)
-                    samples_mask = samples == residue_tokens["<MASK>"]
-                    samples[samples_mask] = samples_final[samples_mask]
-
-                print('final rr:',(samples == true_tokens).sum().item()/true_tokens.shape[0])
-                return samples,logits
-
-            pt_x1_probs = F.softmax(
-                logits, dim=-1
-            )  # (B, T, V_size)   self.config.diffusion.x1_temp
-
-            '''
-            visualize the distribution of the logits
-            '''
-            # print(pt_x1_probs.max(1))
-            
-            # axis[samples_time,0].imshow(pt_x1_probs.detach().cpu().numpy()[:,:23].T,vmin=0,vmax=1,aspect='auto')
-            # # axis[samples_time,0].set_title(f'time:{round(t,3)}')
-            # copy_x1 = pt_x1_probs.detach().cpu().numpy().copy()
-            # non_interact_index = data['residue_index'][data['is_protein']][~data['interact_non_protein_res']].unique().cpu().numpy()
-            # copy_x1[non_interact_index] = 0
-            # axis[samples_time,1].imshow(copy_x1[:,:23].T,vmin=0,vmax=1,aspect='auto')
-            # samples_time += 1
-            
-
-
-            sample_is_mask = (samples == residue_tokens["<MASK>"]).view(B, T, 1).float()
-
-            # print('mask ratio:',sample_is_mask.sum()/sample_is_mask.shape[1])
-            # if t != 0:
-            #     print('unmask rr:',(samples[~sample_is_mask[:,:,0].bool()] == true_tokens[~sample_is_mask.squeeze().bool()]).sum().item()/true_tokens[~sample_is_mask.squeeze().bool()].shape[0])
-
-
-            step_probs = (
-                dt * pt_x1_probs * ((1 + self.config.diffusion.noise * t) / ((1 - t)))
-            )  # (B, T, V_size)
-
-            step_probs = step_probs * sample_is_mask
-
-
-            # average number of dimensions that get re-masked each timestep
-            step_probs += (
-                dt
-                * (1 - sample_is_mask)
-                * F.one_hot(
-                    torch.tensor(residue_tokens["<MASK>"]),
-                    num_classes=num_protein_tokens,
-                )
-                .view(1, 1, -1)
-                .to(device)
-                * noise
-            )
-
-            step_probs += (
-                dt
-                * (1 - sample_is_mask)
-                * F.one_hot(
-                    torch.tensor(residue_tokens["<MASK>"]),
-                    num_classes=num_protein_tokens,
-                )
-                .view(1, 1, -1)
-                .to(device)
-                * noise
-            )
-
-
-
-
-            # sample_is_interact = torch.zeros_like(sample_is_mask)
-            # sample_is_interact[:,interact_res_index.squeeze(),:] =1
-
-            # # print('before adding noise',step_probs[:,sample_is_interact.squeeze().bool(),1])
-            # step_probs += (
-            #     dt
-            #     * sample_is_interact
-            #     * F.one_hot(
-            #         torch.tensor(residue_tokens["<MASK>"]),
-            #         num_classes=num_protein_tokens,
-            #     )
-            #     .view(1, 1, -1)
-            #     .to(device)
-            #     * interact_noise
-            # )
-
-            # print('after adding noise',step_probs[:,sample_is_interact.squeeze().bool(),1])
-
-
-
-            step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
-            step_probs[
-                torch.arange(B, device=device).repeat_interleave(T),
-                torch.arange(T, device=device).repeat(B),
-                samples.flatten(),
-            ] = 0.0
-            step_probs[
-                torch.arange(B, device=device).repeat_interleave(T),
-                torch.arange(T, device=device).repeat(B),
-                samples.flatten(),
-            ] = (
-                1.0 - torch.sum(step_probs, dim=-1).flatten()
-            )
-            step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
-
-            no_mask_prob = step_probs.clone()
-            no_mask_prob[0,:,residue_tokens['<MASK>']] = 0  
-
-            if argmax_final:
-                samples = no_mask_prob.argmax(dim=-1).view(B, T)
-            else:
-                samples = torch.multinomial(
-                    no_mask_prob.view(-1, num_protein_tokens), num_samples=1
-                ).view(B, T)
-
-            # 
-
-            data  = self.sc_packing(samples,pdb_path,t,sample_save_folder,models=self.sc,infer_cfg=self.infer_cfg,device=device)
-            
-            sample_mask = torch.multinomial(
-                step_probs.view(-1, num_protein_tokens), num_samples=1
-            ).view(B, T) == residue_tokens['<MASK>']
-
-            samples[sample_mask] = residue_tokens['<MASK>']
-
-            if mask_interact:
-                samples[:,interact_res_index] = residue_tokens['<MASK>']
-
-
-            # print(round(t,2),'sample',samples[sample_is_interact[:,:,0].bool()])
-            # print(round(t,2),step_probs[:,sample_is_interact.squeeze().bool(),1])
-
-            t = t + dt
-
-        pass
-
-
-    
-
-    
-    def adaptive_sample(self, pdb_path, num_step=10, argmax_final=True,temp = 0.1,noise=1,threshold=0.8,regular_residue =True,fix_mask = None):
-
-        self.model.eval()
-        device = next(self.model.parameters()).device
-        data = pdb2data(pdb_path,device)
-        if 'cif' in pdb_path:
-            import prody
-            sample_save_folder = self.sample_save_path+pdb_path.split('/')[-1].replace('.cif','')
-            os.makedirs(sample_save_folder,exist_ok=True)
-            structure = prody.parseMMCIF(pdb_path)
-            atom = structure.select("not water and not hydrogen")
-            for chain in atom.getHierView():
-                # Split the chain identifier and keep only the letter part
-                chain_id = chain.getChid().split('.')[-1]
-                chain.setChids(chain_id)
-            new_filename = os.path.join(sample_save_folder,pdb_path.split('/')[-1].replace('.cif','.pdb'))
-            
-            prody.proteins.pdbfile.writePDB(new_filename,atom)
-            _clean_pdb_file(new_filename)
-            pdb_path = new_filename
-        else:
-            sample_save_folder = self.sample_save_path+pdb_path.split('/')[-1].replace('.pdb','')
-            os.makedirs(sample_save_folder,exist_ok=True)
-            os.system(f'cp {pdb_path} {sample_save_folder}')
-        true_tokens = data["residue_token"][data["is_center"] & data["is_protein"]]
-        true_tokens_onehot = F.one_hot(true_tokens,num_classes=num_protein_tokens).float()
-        t = 0.0
-        sample_times = 0
-        samples = (
-            torch.ones_like(
-                data["residue_token"][data["is_center"] & data["is_protein"]],
-                device=device,
-            ).unsqueeze(0)
-            * residue_tokens["<MASK>"]
-        )
-        B, T = samples.size()
-        
-        while t <= 1.0:
-            data, noisy_data = self.corrupt_data_by_sample(data, t, samples)
-            logits, _ = self.model(noisy_data, torch.tensor([[t]], device=device))
-            
-            if regular_residue: #only sample the regular residue
-                logits[:,22:] = -float('inf')
-                logits[:,0:2] = -float('inf')
-
-            rr =(logits.argmax(dim=1) == true_tokens).sum()/true_tokens.shape[0]
-            print('time:', round(t,3), round(rr.item(),4),'context_num',noisy_data['residue_token'].shape[1])
-
-            if round(t,3) >= 1.0 or sample_times >= num_step:
-                if argmax_final:
-                    samples_final = logits.argmax(dim=-1).view(B, T)
-                    samples_mask = samples == residue_tokens["<MASK>"]
-                    samples[samples_mask] = samples_final[samples_mask]
-                else:
-                    samples_final = torch.multinomial(
-                        F.softmax(logits, dim=-1).view(B * T, -1), num_samples=1
-                    ).view(B, T)
-                    samples_mask = samples == residue_tokens["<MASK>"]
-                    samples[samples_mask] = samples_final[samples_mask]
-
-                print('final rr:',(samples == true_tokens).sum().item()/true_tokens.shape[0])
-                return samples,logits
-
-            pt_x1_probs = F.softmax(
-                logits/temp, dim=-1
-            )  # (B, T, V_size)   self.config.diffusion.x1_temp
-            if fix_mask is not None:
-                pt_x1_probs[fix_mask] = true_tokens_onehot[fix_mask]
-            conserve_mask = (pt_x1_probs.max(dim=-1)[0] > threshold).view(B, T)
-            conserve_sample = pt_x1_probs.argmax(dim=-1).view(B, T)
-            next_t = (conserve_mask.sum()/conserve_mask.shape[1]).item()
-            dt = next_t - t
-
-            sample_is_mask = (samples == residue_tokens["<MASK>"]).view(B, T, 1).float()
-
-            step_probs = (
-                dt * pt_x1_probs * ((1 + noise * t) / ((1 - t)))
-            )  # (B, T, V_size)
-
-            step_probs = step_probs * sample_is_mask
-
-            # average number of dimensions that get re-masked each timestep
-            step_probs += (
-                dt
-                * (1 - sample_is_mask)
-                * F.one_hot(
-                    torch.tensor(residue_tokens["<MASK>"]),
-                    num_classes=num_protein_tokens,
-                )
-                .view(1, 1, -1)
-                .to(device)
-                * noise
-            )
-
-            step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
-            step_probs[
-                torch.arange(B, device=device).repeat_interleave(T),
-                torch.arange(T, device=device).repeat(B),
-                samples.flatten(),
-            ] = 0.0
-            step_probs[
-                torch.arange(B, device=device).repeat_interleave(T),
-                torch.arange(T, device=device).repeat(B),
-                samples.flatten(),
-            ] = (
-                1.0 - torch.sum(step_probs, dim=-1).flatten()
-            )
-            step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
-
-            no_mask_prob = step_probs.clone()
-            no_mask_prob[0,:,residue_tokens['<MASK>']] = 0  
-            if (no_mask_prob.sum(dim=-1) <= 0).sum() > 0:  
-                
-                no_mask_prob[no_mask_prob.sum(dim=-1) != 1] = pt_x1_probs.view(B, T,-1)[no_mask_prob.sum(dim=-1) != 1].to(no_mask_prob.dtype)
-
-
-            samples = torch.multinomial(
-                no_mask_prob.view(-1, num_protein_tokens), num_samples=1
-            ).view(B, T)
-            # samples = no_mask_prob.argmax(dim=-1).view(B, T)
-
-
-
-            samples = samples * ~conserve_mask + conserve_sample * conserve_mask
-
-            data  = self.sc_packing(samples,pdb_path,t,sample_save_folder,models=self.sc,infer_cfg=self.infer_cfg,device=device)
-
-            samples[~conserve_mask] = residue_tokens['<MASK>']
-            t = t + dt
-            sample_times += 1
-
-                
-
-        if argmax_final:
-            samples_final = logits.argmax(dim=-1).view(B, T)
-            samples_mask = samples == residue_tokens["<MASK>"]
-            samples[samples_mask] = samples_final[samples_mask]
-        else:
-            samples_final = torch.multinomial(
-                F.softmax(logits, dim=-1).view(B * T, -1), num_samples=1
-            ).view(B, T)
-            samples_mask = samples == residue_tokens["<MASK>"]
-            samples[samples_mask] = samples_final[samples_mask]
-        print('final rr:',(samples == true_tokens).sum().item()/true_tokens.shape[0])
-        return samples,logits
-    
     def sc_packing(self,samples,pdb_path,t,sample_save_folder,models,infer_cfg,device):    
         protein_name = pdb_path.split('/')[-1].replace('.pdb','')+'_0'
         decode_mapping = {j:i for i,j in residue_tokens.items()}
@@ -618,96 +161,170 @@ class DiscreteFlow_AA(nn.Module):
 
         return data
 
-    def forward(self, data):
-        """
-        idx is the corrupted tokens (b, t)
-        time is the time in the corruption process (b,)
-        targets is the clean data (b, t)
-        target_mask is 1.0 for points in the sequence that have been corrupted
-            and should have loss calculated on them (b, t)
-        do_self_cond_loop is whether to do two passes to train the self conditioning
-        """
-        # data,noisy_data,times = self.corrupt_token(data)
 
-        noisy_data = {k: v.clone() for k, v in data.items()}
-        noisy_data["residue_token"] = data["noisy_residue_token"]
-        times = data["time_step"]
 
-        #debug check token
-        # print(check_categories(data['residue_token'][data['not_pad_mask']&data['is_center']]))
-        b, t = noisy_data["residue_token"].size()
-        assert (times < 1.1).all()  # 0 to 1 not 0 to 1000
-
-        logits, _ = self.model(noisy_data, times)
-        loss = self.compute_loss(logits, data)
-        return logits, loss
-
-    def sample_fix(self, pdb_path, dt=0.1, argmax_final=True,temp = 0.1,noise=1,mask_interact=False,interact_noise=1,regular_residue=True,fix_mask = None):
-        self.model.eval()
+    def test(self, dataloader):
         device = next(self.model.parameters()).device
-        data = pdb2data(pdb_path,device)
+        error = 0
+        total_flatten_logits = torch.tensor([])
+        total_flatten_true = torch.tensor([])
+        total_flatten_interact_non_protein_logits = torch.tensor([])
+        total_flatten_interact_non_protein_true = torch.tensor([])
+
+        self.model.eval()
+        for data in dataloader:
+            try:
+                data = {k: v.to(device) for k, v in data.__dict__.items()}
+                data = {
+                    k: v.float() if v.dtype == torch.float64 else v
+                    for k, v in data.items()
+                }
+                noisy_data = {k: v.clone() for k, v in data.items()}
+                noisy_data["residue_token"] = data["noisy_residue_token"]
+                times = data["time_step"]
+                flatten_logits, _ = self.model(noisy_data, times)
+
+                center_mask = data["is_center"] & data["is_protein"]
+                if "backbone_mask" in data:
+                    center_mask = center_mask & data["backbone_mask"]
+                flatten_true = data["residue_token"][center_mask]
+
+                interact_non_protein = data["interact_non_protein_res"][center_mask].cpu()
+                mask_for_loss = data['mask_chain'][center_mask].cpu()
+                if mask_for_loss.sum() == 0:
+                    continue
+                flatten_logits = flatten_logits.detach().cpu()
+                flatten_true = flatten_true.detach().cpu()
+                total_flatten_logits = torch.cat((total_flatten_logits, flatten_logits[mask_for_loss]))
+                total_flatten_true = torch.cat((total_flatten_true, flatten_true[mask_for_loss]))
+
+                total_flatten_interact_non_protein_logits = torch.cat((total_flatten_interact_non_protein_logits, flatten_logits[interact_non_protein&mask_for_loss]))
+                total_flatten_interact_non_protein_true = torch.cat((total_flatten_interact_non_protein_true, flatten_true[interact_non_protein&mask_for_loss]))
+                del flatten_logits, flatten_true
+
+            except Exception as e:
+                error +=1
+                print(f"Error in test in {e}")
+                
+        loss = F.cross_entropy(total_flatten_logits, total_flatten_true.long())
+        accuracy = (
+            (total_flatten_logits.argmax(dim=-1) == total_flatten_true).float().mean()
+        )
+        perplexity = torch.exp(loss)
+
+        interact_non_protein_loss = F.cross_entropy(total_flatten_interact_non_protein_logits, total_flatten_interact_non_protein_true.long())
+        interact_non_protein_accuracy = (
+            (total_flatten_interact_non_protein_logits.argmax(dim=-1) == total_flatten_interact_non_protein_true).float().mean()
+        )
+        interact_non_protein_perplexity = torch.exp(interact_non_protein_loss)
+
+
+        del total_flatten_logits, total_flatten_true,total_flatten_interact_non_protein_logits, total_flatten_interact_non_protein_true
+        return loss, accuracy, perplexity,interact_non_protein_accuracy, interact_non_protein_perplexity
+
+
+    _CORRUPT_SKIP_FIELDS = frozenset({
+        "noisy_residue_token", "interact_non_protein_res", "interact_ion_res",
+        "interact_nucleotide_res", "interact_molecule_res", "is_mask",
+    })
+
+    def corrupt_data_by_sample(self, data, time, sample):
+        """Corrupt data for one sampling step: inject current samples, remove sidechains of masked residues."""
+        device = data["residue_token"].device
+        noisy_data = {k: v.squeeze().clone() for k, v in data.items()}
+
+        # Step 1: replace designable positions with current sample tokens
+        designable_mask = noisy_data["is_center"].bool() & noisy_data["is_protein"].bool()
+        if "backbone_mask" in noisy_data:
+            designable_mask = designable_mask & noisy_data["backbone_mask"].bool()
+        noisy_data["residue_token"][designable_mask] = sample
+
+        # Step 2: which center residues are still <MASK>?
+        center_tokens = noisy_data["residue_token"][noisy_data["is_center"].bool()]
+        residue_is_masked = (center_tokens == residue_tokens["<MASK>"])
+
+        # Step 3: propagate <MASK> from center to all atoms of masked residues
+        is_protein = noisy_data["is_protein"].bool()
+        res_idx_protein = noisy_data["residue_index"][is_protein]
+        if res_idx_protein.numel() > 0:
+            assert center_tokens.shape[0] > res_idx_protein.max().item()
+        atom_masked = residue_is_masked[res_idx_protein]
+        noisy_data["residue_token"][is_protein] = torch.where(
+            atom_masked,
+            torch.tensor(residue_tokens["<MASK>"], device=device),
+            noisy_data["residue_token"][is_protein],
+        )
+
+        # Step 4: build keep_mask — remove sidechain atoms of masked residues
+        #   backbone atoms are always kept; sidechain atoms only kept if residue is unmasked
+        keep_mask = torch.ones_like(noisy_data["residue_token"], dtype=torch.bool)
+        sidechain_protein = ~noisy_data["is_backbone"].bool() & is_protein
+        keep_mask[sidechain_protein] = ~residue_is_masked[noisy_data["residue_index"][sidechain_protein]]
+
+        # Step 5: apply keep_mask to all per-atom fields
+        time_tensor = torch.ones((1, 1), device=device) * time
+        for name, item in noisy_data.items():
+            if name == "time_step":
+                noisy_data[name] = time_tensor
+            elif name not in self._CORRUPT_SKIP_FIELDS:
+                noisy_data[name] = item[keep_mask].unsqueeze(0)
+
+        return data, noisy_data
+
+
+    def _prepare_sampling_io(self, pdb_path):
+        """Parse PDB/CIF, convert CIF->PDB if needed, set up save folder."""
+        device = next(self.model.parameters()).device
+        data = pdb2data(pdb_path, device)
+        basename = os.path.basename(pdb_path)
         if 'cif' in pdb_path:
-            import prody
-            sample_save_folder = self.sample_save_path+pdb_path.split('/')[-1].replace('.cif','')
-            os.makedirs(sample_save_folder,exist_ok=True)
-            structure = prody.parseMMCIF(pdb_path)
-            atom = structure.select("not water and not hydrogen")
-            for chain in atom.getHierView():
-                # Split the chain identifier and keep only the letter part
-                chain_id = chain.getChid().split('.')[-1]
-                chain.setChids(chain_id)
-            new_filename = os.path.join(sample_save_folder,pdb_path.split('/')[-1].replace('.cif','.pdb'))
-            
-            prody.proteins.pdbfile.writePDB(new_filename,atom)
-            pdb_path = new_filename
+            stem = basename.replace('.cif.gz', '').replace('.cif', '')
+            save_folder = os.path.join(self.sample_save_path, stem)
+            os.makedirs(save_folder, exist_ok=True)
+            cif_path = pdb_path
+            pdb_path = os.path.join(save_folder, stem + '.pdb')
+            cif_to_pdb(cif_path, pdb_path)
         else:
-            sample_save_folder = self.sample_save_path+pdb_path.split('/')[-1].replace('.pdb','')
-            os.makedirs(sample_save_folder,exist_ok=True)
-            os.system(f'cp {pdb_path} {sample_save_folder}')
-        true_tokens = data["residue_token"][data["is_center"] & data["is_protein"]]
-        true_tokens_onehot = F.one_hot(true_tokens,num_classes=num_protein_tokens).float()
+            stem = basename.replace('.pdb', '')
+            save_folder = os.path.join(self.sample_save_path, stem)
+            os.makedirs(save_folder, exist_ok=True)
+            os.system(f'cp {pdb_path} {save_folder}')
+        return data, pdb_path, save_folder, device
+
+    def adaptive_sample(self, pdb_path, num_step=10, argmax_final=True,temp = 0.1,noise=1,threshold=0.8,regular_residue =True):
+
+        self.model.eval()
+        data, pdb_path, sample_save_folder, device = self._prepare_sampling_io(pdb_path)
+
+        designable_mask = data["is_center"].bool() & data["is_protein"].bool()
+        if "backbone_mask" in data:
+            designable_mask = designable_mask & data["backbone_mask"].bool()
+        true_tokens = data["residue_token"][designable_mask]
+        if true_tokens.numel() == 0:
+            raise ValueError("No designable protein residues (all have incomplete backbone or no protein)")
         t = 0.0
+        sample_times = 0
         samples = (
             torch.ones_like(
-                data["residue_token"][data["is_center"] & data["is_protein"]],
+                data["residue_token"][designable_mask],
                 device=device,
             ).unsqueeze(0)
             * residue_tokens["<MASK>"]
         )
         B, T = samples.size()
-        interact_res_index = data['residue_index'][data['is_protein']][data['interact_non_protein_res']].unique()
 
-        # samples_time = 0
-        # fig,axis = plt.subplots(10,2,figsize=(5, 10))
         while t <= 1.0:
             data, noisy_data = self.corrupt_data_by_sample(data, t, samples)
             logits, _ = self.model(noisy_data, torch.tensor([[t]], device=device))
 
-            if regular_residue: #only sample the regular residue
-                logits[:,22:] = -float('inf')
-                logits[:,0:2] = -float('inf')
-            rr = (logits.argmax(dim=1) == true_tokens).sum()/true_tokens.shape[0]
+            rr =(logits.argmax(dim=1) == true_tokens).sum()/true_tokens.shape[0]
             print('time:', round(t,3), round(rr.item(),4),'context_num',noisy_data['residue_token'].shape[1])
-            
 
-
-            # print('logits:')
-            # print(t,F.softmax(logits,dim=-1).max(1)[0][:100])
-            # interact_non_protein_res = data['residue_index'][data['is_protein']][data['interact_non_protein_res']].unique()
-            # print('interact_non_protein_res logits')
-            # print(F.softmax(logits,dim=-1)[interact_non_protein_res].max(1)[0])
-
-
-
-            if round(t+dt,3) >= 1.0 or dt >=1.0:
+            if round(t,3) >= 1.0 or sample_times >= num_step:
                 if argmax_final:
                     samples_final = logits.argmax(dim=-1).view(B, T)
                     samples_mask = samples == residue_tokens["<MASK>"]
                     samples[samples_mask] = samples_final[samples_mask]
-
-                    # plt.savefig(f'{sample_save_folder}/'+pdb_path.split('/')[-1].replace('.pdb','')+f'_final_{samples_time}.png',dpi=300,bbox_inches='tight')
-                
-                
                 else:
                     samples_final = torch.multinomial(
                         F.softmax(logits, dim=-1).view(B * T, -1), num_samples=1
@@ -715,94 +332,29 @@ class DiscreteFlow_AA(nn.Module):
                     samples_mask = samples == residue_tokens["<MASK>"]
                     samples[samples_mask] = samples_final[samples_mask]
 
-                if fix_mask is not None:
-                    samples = samples.squeeze()
-                    samples[fix_mask] = true_tokens[fix_mask]
                 print('final rr:',(samples == true_tokens).sum().item()/true_tokens.shape[0])
                 return samples,logits
 
-            pt_x1_probs = F.softmax(
-                logits, dim=-1
-            )  # (B, T, V_size)   self.config.diffusion.x1_temp
-            if fix_mask is not None:
-                pt_x1_probs[fix_mask] = true_tokens_onehot[fix_mask]
-            '''
-            visualize the distribution of the logits
-            '''
-            # print(pt_x1_probs.max(1))
-            
-            # axis[samples_time,0].imshow(pt_x1_probs.detach().cpu().numpy()[:,:23].T,vmin=0,vmax=1,aspect='auto')
-            # # axis[samples_time,0].set_title(f'time:{round(t,3)}')
-            # copy_x1 = pt_x1_probs.detach().cpu().numpy().copy()
-            # non_interact_index = data['residue_index'][data['is_protein']][~data['interact_non_protein_res']].unique().cpu().numpy()
-            # copy_x1[non_interact_index] = 0
-            # axis[samples_time,1].imshow(copy_x1[:,:23].T,vmin=0,vmax=1,aspect='auto')
-            # samples_time += 1
-            
+            pt_x1_probs = F.softmax(logits/temp, dim=-1)  # (B, T, V_size)
 
+            conserve_mask = (pt_x1_probs.max(dim=-1)[0] > threshold).view(B, T)
+            conserve_sample = pt_x1_probs.argmax(dim=-1).view(B, T)
+            next_t = (conserve_mask.sum()/conserve_mask.shape[1]).item()
+            dt = next_t - t
 
+            # --- Forward transition: masked positions get probability of each token ---
             sample_is_mask = (samples == residue_tokens["<MASK>"]).view(B, T, 1).float()
-
-            # print('mask ratio:',sample_is_mask.sum()/sample_is_mask.shape[1])
-            # if t != 0:
-            #     print('unmask rr:',(samples[~sample_is_mask[:,:,0].bool()] == true_tokens[~sample_is_mask.squeeze().bool()]).sum().item()/true_tokens[~sample_is_mask.squeeze().bool()].shape[0])
-
-
-            step_probs = (
-                dt * pt_x1_probs * ((1 + self.config.diffusion.noise * t) / ((1 - t)))
-            )  # (B, T, V_size)
-
+            step_probs = dt * pt_x1_probs * ((1 + noise * t) / (1 - t))
             step_probs = step_probs * sample_is_mask
 
+            # --- Backward noise: unmasked positions get probability of re-masking ---
+            mask_onehot = F.one_hot(
+                torch.tensor(residue_tokens["<MASK>"]),
+                num_classes=logits.size(-1),
+            ).view(1, 1, -1).to(device)
+            step_probs += dt * (1 - sample_is_mask) * mask_onehot * noise
 
-            # average number of dimensions that get re-masked each timestep
-            step_probs += (
-                dt
-                * (1 - sample_is_mask)
-                * F.one_hot(
-                    torch.tensor(residue_tokens["<MASK>"]),
-                    num_classes=num_protein_tokens,
-                )
-                .view(1, 1, -1)
-                .to(device)
-                * noise
-            )
-
-            step_probs += (
-                dt
-                * (1 - sample_is_mask)
-                * F.one_hot(
-                    torch.tensor(residue_tokens["<MASK>"]),
-                    num_classes=num_protein_tokens,
-                )
-                .view(1, 1, -1)
-                .to(device)
-                * noise
-            )
-
-
-
-
-            # sample_is_interact = torch.zeros_like(sample_is_mask)
-            # sample_is_interact[:,interact_res_index.squeeze(),:] =1
-
-            # # print('before adding noise',step_probs[:,sample_is_interact.squeeze().bool(),1])
-            # step_probs += (
-            #     dt
-            #     * sample_is_interact
-            #     * F.one_hot(
-            #         torch.tensor(residue_tokens["<MASK>"]),
-            #         num_classes=num_protein_tokens,
-            #     )
-            #     .view(1, 1, -1)
-            #     .to(device)
-            #     * interact_noise
-            # )
-
-            # print('after adding noise',step_probs[:,sample_is_interact.squeeze().bool(),1])
-
-
-
+            # --- Normalize: remaining mass assigned to current token ---
             step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
             step_probs[
                 torch.arange(B, device=device).repeat_interleave(T),
@@ -820,20 +372,116 @@ class DiscreteFlow_AA(nn.Module):
 
             no_mask_prob = step_probs.clone()
             no_mask_prob[0,:,residue_tokens['<MASK>']] = 0  
+            if (no_mask_prob.sum(dim=-1) <= 0).sum() > 0:  
+                
+                no_mask_prob[no_mask_prob.sum(dim=-1) != 1] = pt_x1_probs.view(B, T,-1)[no_mask_prob.sum(dim=-1) != 1].to(no_mask_prob.dtype)
+
+
+            samples = torch.multinomial(
+                no_mask_prob.view(-1, logits.size(-1)), num_samples=1
+            ).view(B, T)
+            samples = samples * ~conserve_mask + conserve_sample * conserve_mask
+
+            if hasattr(self, 'sc'):
+                data  = self.sc_packing(samples,pdb_path,t,sample_save_folder,models=self.sc,infer_cfg=self.infer_cfg,device=device)
+
+            samples[~conserve_mask] = residue_tokens['<MASK>']
+            t = t + dt
+            sample_times += 1
+
+
+
+
+    def sample(self, pdb_path, dt=0.1, argmax_final=True,noise=1,mask_interact=False):
+        self.model.eval()
+        data, pdb_path, sample_save_folder, device = self._prepare_sampling_io(pdb_path)
+        designable_mask = data["is_center"].bool() & data["is_protein"].bool()
+        if "backbone_mask" in data:
+            designable_mask = designable_mask & data["backbone_mask"].bool()
+        true_tokens = data["residue_token"][designable_mask]
+        if true_tokens.numel() == 0:
+            raise ValueError("No designable protein residues (all have incomplete backbone or no protein)")
+        t = 0.0
+        samples = (
+            torch.ones_like(
+                data["residue_token"][designable_mask],
+                device=device,
+            ).unsqueeze(0)
+            * residue_tokens["<MASK>"]
+        )
+        B, T = samples.size()
+        interact_res_index = data['residue_index'][data['is_protein']][data['interact_non_protein_res']].unique()
+
+        while t <= 1.0:
+            data, noisy_data = self.corrupt_data_by_sample(data, t, samples)
+            logits, _ = self.model(noisy_data, torch.tensor([[t]], device=device))
+
+            rr = (logits.argmax(dim=1) == true_tokens).sum()/true_tokens.shape[0]
+            print('time:', round(t,3), round(rr.item(),4),'context_num',noisy_data['residue_token'].shape[1])
+
+            if round(t,3) >= 1.0 or dt >=1.0:
+                if argmax_final:
+                    samples_final = logits.argmax(dim=-1).view(B, T)
+                    samples_mask = samples == residue_tokens["<MASK>"]
+                    samples[samples_mask] = samples_final[samples_mask]
+                else:
+                    samples_final = torch.multinomial(
+                        F.softmax(logits, dim=-1).view(B * T, -1), num_samples=1
+                    ).view(B, T)
+                    samples_mask = samples == residue_tokens["<MASK>"]
+                    samples[samples_mask] = samples_final[samples_mask]
+
+                print('final rr:',(samples == true_tokens).sum().item()/true_tokens.shape[0])
+                return samples,logits
+
+            pt_x1_probs = F.softmax(logits, dim=-1)  # (B, T, V_size)
+
+            # --- Forward transition: masked positions get probability of each token ---
+            sample_is_mask = (samples == residue_tokens["<MASK>"]).view(B, T, 1).float()
+            step_probs = (
+                dt * pt_x1_probs * ((1 + noise * t) / ((1 - t)))
+            )  # (B, T, V_size)
+
+            step_probs = step_probs * sample_is_mask
+
+            # --- Backward noise: unmasked positions get probability of re-masking ---
+            mask_onehot = F.one_hot(
+                torch.tensor(residue_tokens["<MASK>"]),
+                num_classes=logits.size(-1),
+            ).view(1, 1, -1).to(device)
+            step_probs += dt * (1 - sample_is_mask) * mask_onehot * noise
+
+            # --- Normalize: remaining mass assigned to current token ---
+            step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
+            step_probs[
+                torch.arange(B, device=device).repeat_interleave(T),
+                torch.arange(T, device=device).repeat(B),
+                samples.flatten(),
+            ] = 0.0
+            step_probs[
+                torch.arange(B, device=device).repeat_interleave(T),
+                torch.arange(T, device=device).repeat(B),
+                samples.flatten(),
+            ] = (
+                1.0 - torch.sum(step_probs, dim=-1).flatten()
+            )
+            step_probs = torch.clamp(step_probs, min=0.0, max=1.0)
+
+            no_mask_prob = step_probs.clone()
+            no_mask_prob[0,:,residue_tokens['<MASK>']] = 0
 
             if argmax_final:
                 samples = no_mask_prob.argmax(dim=-1).view(B, T)
             else:
                 samples = torch.multinomial(
-                    no_mask_prob.view(-1, num_protein_tokens), num_samples=1
+                    no_mask_prob.view(-1, logits.size(-1)), num_samples=1
                 ).view(B, T)
 
-            # 
+            if hasattr(self, 'sc'):
+                data  = self.sc_packing(samples,pdb_path,t,sample_save_folder,models=self.sc,infer_cfg=self.infer_cfg,device=device)
 
-            data  = self.sc_packing(samples,pdb_path,t,sample_save_folder,models=self.sc,infer_cfg=self.infer_cfg,device=device)
-            
             sample_mask = torch.multinomial(
-                step_probs.view(-1, num_protein_tokens), num_samples=1
+                step_probs.view(-1, logits.size(-1)), num_samples=1
             ).view(B, T) == residue_tokens['<MASK>']
 
             samples[sample_mask] = residue_tokens['<MASK>']
@@ -841,10 +489,26 @@ class DiscreteFlow_AA(nn.Module):
             if mask_interact:
                 samples[:,interact_res_index] = residue_tokens['<MASK>']
 
-
-            # print(round(t,2),'sample',samples[sample_is_interact[:,:,0].bool()])
-            # print(round(t,2),step_probs[:,sample_is_interact.squeeze().bool(),1])
-
             t = t + dt
 
-        pass
+
+    def forward(self, data):
+        """
+        idx is the corrupted tokens (b, t)
+        time is the time in the corruption process (b,)
+        targets is the clean data (b, t)
+        target_mask is 1.0 for points in the sequence that have been corrupted
+            and should have loss calculated on them (b, t)
+        do_self_cond_loop is whether to do two passes to train the self conditioning
+        """
+
+        noisy_data = {k: v.clone() for k, v in data.items()}
+        noisy_data["residue_token"] = data["noisy_residue_token"]
+        times = data["time_step"]
+
+        b, t = noisy_data["residue_token"].size()
+        assert (times < 1.1).all()  # 0 to 1 not 0 to 1000
+
+        logits, _ = self.model(noisy_data, times)
+        loss = self.compute_loss(logits, data)
+        return logits, loss
