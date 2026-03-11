@@ -12,6 +12,7 @@ pip install -r requirements.txt
 pip install torch-cluster -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 pip install hydra-core
+conda install -c conda-forge -c bioconda mmseqs2
 ```
 
 
