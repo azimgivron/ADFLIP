@@ -44,11 +44,11 @@ zoidberg_denoiser:
   number_ligand_atom: 25
   mpnn_cutoff: True
   interaction_loss_coeff: 1.0
-  output_dim: 54
+  output_dim: 33
 
 training:
   dataset: pdb
-  batch_size: 16
+  batch_size: 64
   gradient_accumulate_every: 1
   train_lr: 0.001
   weight_decay: 0.01
@@ -63,8 +63,7 @@ training:
   label_smoothing: True
 
 wandb:
-  use: False
+  use: True
   name: discrete_flow
   project: ADFILP
-  run_name: ADFLIP_PDB_icml_hd128_bz12_noise0_dp0.1_label_smoothing_assembly
-  team: protein_mpnn
+  run_name: ADFLIP_v1_final

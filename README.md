@@ -16,6 +16,18 @@ conda install -c conda-forge -c bioconda mmseqs2
 ```
 
 
+## Training
+
+To train ADFLIP from scratch:
+
+```bash
+conda activate ADFLIP
+export PYTHONPATH=$PWD:$PYTHONPATH
+python3 trainer.py --config_path config/train_v1.yaml
+```
+
+Training configuration (hyperparameters, data paths, wandb logging, etc.) can be modified in `config/train_v1.yaml`.
+
 ## Usage
 
 There are two main ways to sample sequences from a given input file:
