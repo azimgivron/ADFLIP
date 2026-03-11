@@ -130,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--ckpt_path",
         type=str,
-        default="_ADFLIP_PDB_icml_hd128_bz12_noise0_dp0.1_label_smoothing_tfmr3_Jul4_best.pt",
+        default="ADFLIP_v1.pt",
         help="pretrained model path",
     )
     parser.add_argument(

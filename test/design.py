@@ -19,6 +19,7 @@ from ema_pytorch import EMA
 from model.discrete_flow_aa import DiscreteFlow_AA
 from model.zoidberg.zoidberg_GNN import Zoidberg_GNN
 from data import all_atom_parse as aap
+from data.residue_config import configure as configure_residues
 
 class Config:
     def __init__(self, dictionary):
@@ -123,13 +124,13 @@ def build_denoiser(config, device: torch.device):
         augment_eps=cfg.augment_eps,
         backbone_diheral=cfg.backbone_diheral,
         dropout=cfg.dropout,
-        denoiser=True,
         update_atom=cfg.update_atom,
         num_decoder_blocks=cfg.num_decoder_blocks,
         num_tfmr_heads=cfg.num_tfmr_heads,
         num_tfmr_layers=cfg.num_tfmr_layers,
         number_ligand_atom=cfg.number_ligand_atom,
         mpnn_cutoff=cfg.mpnn_cutoff,
+        output_dim=cfg.output_dim,
     )
     return model.to(device)
 
@@ -140,6 +141,7 @@ def load_flow_model(ckpt_path: str, device: torch.device):
     """
     ckpt = torch.load(ckpt_path, map_location="cpu")
     config = ckpt["config"]
+    configure_residues(include_nonstd_amino_acids=getattr(config.data, 'include_nonstd_amino_acids', True))
 
     denoiser = build_denoiser(config, device)
     flow = DiscreteFlow_AA(config, denoiser,
@@ -158,7 +160,7 @@ def load_flow_model(ckpt_path: str, device: torch.device):
 def main():
     parser = argparse.ArgumentParser(description="Run ADFLIP inverse folding")
     parser.add_argument("--pdb",          help="Path to input PDB/mmCIF file" , default="dataset/1g7g.pdb")
-    parser.add_argument("--ckpt",       default="results/weights/ADFLIP_ICML_camera_ready.pt",
+    parser.add_argument("--ckpt",       default="results/weights/ADFLIP_v1.pt",
                         help="Path to model checkpoint")
     parser.add_argument("--device",     default="cuda:0", help="Torch device")
     parser.add_argument("--method",     choices=["fixed","adaptive"], default="adaptive",
