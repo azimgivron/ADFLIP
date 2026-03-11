@@ -113,7 +113,11 @@ def pdbs_from_prediction(sample_results) -> Sequence[str]:
     for i in range(S.shape[0]):
         aatype = S[i].cpu().numpy()
         atom_positions = pred_xyz[i].cpu().numpy()
-        atom_mask = (np.sum(atom_positions, axis=-1) != 0.0).astype(np.int32)
+        # Use residue-type atom existence instead of coordinate sum.
+        # Coordinate-sum checks can drop valid atoms when x + y + z == 0 by chance.
+        atom_exists = atom37_atom_exists[i].cpu().numpy() > 0.5
+        finite_xyz = np.isfinite(atom_positions).all(axis=-1)
+        atom_mask = (atom_exists & finite_xyz).astype(np.int32)
         chain_idx = chain_index[i].cpu().numpy()
         residue_idx = residue_index[i].cpu().numpy()
         b_factors = np.zeros(atom_mask.shape)

@@ -13,7 +13,6 @@ from PIPPack.data.top2018_dataset import transform_structure, collate_fn
 from PIPPack.ensembled_inference import sample_epoch
 import pickle
 import time
-import prody
 from typing import List
 
 def _is_abnormal_pdb_line(line: str) -> bool:
