@@ -186,7 +186,7 @@ def main():
             args.pdb,
             num_step=args.steps,
             threshold=args.threshold,
-            argmax_final=False
+            argmax_final=True
         )
     samples = samples.squeeze()
 

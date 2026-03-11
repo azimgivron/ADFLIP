@@ -16,6 +16,7 @@ from data.all_atom_parse import residue_tokens
 from data import all_atom_parse as aap
 from data.all_atom_parse import StructureData
 from data.utils import TimeSortedCacheRBT
+from scipy.spatial import cKDTree
 
 
 Partition = Literal["train", "valid", "test"]
@@ -226,6 +227,35 @@ class AllAtomDataset(torch.utils.data.Dataset):
                     random_position = self.random_gen.choice(
                         data.position[data.is_protein&chain_mask], axis=0
                     )
+                elif self.cut_position_type == "interface":
+                    # find atoms near the interface between different chains
+                    unique_chains = np.unique(data.chain_id)
+                    if len(unique_chains) > 1:
+                        # for each atom, find nearest atom from a different chain
+                        # interface atoms = those within 8A of another chain
+                        interface_mask = np.zeros(len(data.position), dtype=bool)
+                        for cid in unique_chains:
+                            this_chain = data.chain_id == cid
+                            other_chains = data.chain_id != cid
+                            if not np.any(other_chains):
+                                continue
+                            tree = cKDTree(data.position[other_chains])
+                            dists, _ = tree.query(data.position[this_chain])
+                            interface_mask[this_chain] = dists < 8.0
+                        if np.any(interface_mask):
+                            random_position = self.random_gen.choice(
+                                data.position[interface_mask], axis=0
+                            )
+                        else:
+                            # fallback: no interface found, use random atom
+                            random_position = self.random_gen.choice(
+                                data.position, axis=0
+                            )
+                    else:
+                        # single chain, just pick random atom
+                        random_position = self.random_gen.choice(
+                            data.position, axis=0
+                        )
                 elif self.cut_position_type == "ligand":
                     if data.is_protein.sum() == data.is_protein.shape[0]: # no ligand
                         random_position = self.random_gen.choice(
@@ -429,6 +459,24 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             for idx, (key, value) in enumerate(self.cluster_dict.items())
             if key in self.sel_keys
         }
+
+        # optionally filter out excluded PDBs (e.g. ProteinMPNN excluded set)
+        excluded_pdbs_path = getattr(cfg, "excluded_pdbs_path", None)
+        if excluded_pdbs_path:
+            excluded_df = pd.read_csv(excluded_pdbs_path)
+            excluded_set = set(excluded_df["PDB_IDS"].str.lower())
+            n_before = sum(len(v) for v in self.select_cluster.values())
+            filtered = {}
+            for idx, chains in self.select_cluster.items():
+                kept = [c for c in chains if c[:4].lower() not in excluded_set]
+                if kept:
+                    filtered[idx] = kept
+            self.select_cluster = filtered
+            self.sel_keys = list(self.select_cluster.keys())
+            n_after = sum(len(v) for v in self.select_cluster.values())
+            print(f"Excluded PDBs filter: {n_before} chains -> {n_after} chains "
+                  f"({n_before - n_after} removed), "
+                  f"{len(self.select_cluster)} clusters remaining")
 
         self.all_pdb = []
         for _, v in self.select_cluster.items():
