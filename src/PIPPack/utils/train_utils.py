@@ -4,7 +4,7 @@ from typing import Sequence, Dict
 
 def load_checkpoint(checkpoint_path, model):
     # print('Loading checkpoint from {}'.format(checkpoint_path))
-    state_dicts = torch.load(checkpoint_path, map_location='cpu')
+    state_dicts = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     model.load_state_dict(state_dicts['model_state_dict'])
     # print('\tEpoch {}'.format(state_dicts['epoch']))
     return
@@ -13,7 +13,7 @@ def load_checkpoint(checkpoint_path, model):
 def determine_best_epoch_from_log(
         log_file: str, metrics: Sequence[str],
         metric_weights: Sequence[float] = None, highest: bool = True, delimiter: str = "\t",
-    ) -> Dict[str, int or float]:
+    ) -> Dict[str, int | float]:
     """Reads the log file and determines which epoch is best based on the specified metrics and their weights.
 
     Args:

@@ -139,7 +139,7 @@ def load_flow_model(ckpt_path: str, device: torch.device):
     """
     Load DiscreteFlow_AA model + EMA wrapper from checkpoint.
     """
-    ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     config = ckpt["config"]
     configure_residues(include_nonstd_amino_acids=getattr(config.data, 'include_nonstd_amino_acids', True))
 

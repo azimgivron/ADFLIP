@@ -10,7 +10,7 @@ rotamer_test = "/nas/longleaf/home/nzrandol/kuhl_lab/MolProbity/molprobity/cmdli
 def _eval_rotamers(pdb_file, out_file, lock):
     # Write clash score to temporary file
     tmp_file = os.path.join(os.path.dirname(out_file), f"tmp_eval_rotamers_{os.getpid()}.txt")
-    os.system(f'{rotamer_test} {pdb_file} | grep "\[eval\] =>" > {tmp_file}')
+    os.system(f'{rotamer_test} {pdb_file} | grep "\\[eval\\] =>" > {tmp_file}')
     
     with lock:
         with open(tmp_file, 'r') as f_in, open(out_file, 'a') as f_out:

@@ -24,3 +24,4 @@ chai_weight/
 chai_weight.tar.gz
 __PIPPack/*
 data/cluster/mmseqs/*
+*.egg-info/

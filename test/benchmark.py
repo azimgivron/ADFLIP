@@ -240,7 +240,7 @@ if __name__ == '__main__':
     
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    ckpt = torch.load(ckpt_path, map_location=device)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     config = ckpt["config"]
     config.training.label_smoothing = True
     configure_residues(include_nonstd_amino_acids=getattr(config.data, 'include_nonstd_amino_acids', True))

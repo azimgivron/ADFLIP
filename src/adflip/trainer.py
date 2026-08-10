@@ -151,7 +151,9 @@ class Trainer(object):
 
 
         data = torch.load(
-            str(self.results_folder) + "/" + filename, map_location=device
+            str(self.results_folder) + "/" + filename,
+            map_location=device,
+            weights_only=False,
         )
 
         self.model.load_state_dict(data["model"])

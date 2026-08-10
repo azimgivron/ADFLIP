@@ -30,7 +30,7 @@ def main(args):
     device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
     
     ckpt_path = args.ckpt_path
-    ckpt = torch.load(ckpt_path, map_location=torch.device('cpu'))
+    ckpt = torch.load(ckpt_path, map_location=torch.device('cpu'), weights_only=False)
     num_edges = ckpt['num_edges']
     
     data_path = args.path_for_training_data

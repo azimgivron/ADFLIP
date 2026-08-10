@@ -105,7 +105,7 @@ class DiscreteFlow_AA(nn.Module):
                 mask_distances = cfg.model.mask_distances,
                 loss = cfg.model.loss,
             )
-            state_dicts = torch.load(str(ckpt_file), map_location=device)
+            state_dicts = torch.load(str(ckpt_file), map_location=device, weights_only=False)
             model.load_state_dict(state_dicts['model_state_dict'])
             model = model.to(device)
             models.append(model)
