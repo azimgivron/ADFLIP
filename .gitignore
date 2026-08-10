@@ -1,6 +1,7 @@
 dataset/
 wandb/
 *.pyc
+*.pkl
 .DS_Store
 model/esm/ckpt/
 model/__pycache__/

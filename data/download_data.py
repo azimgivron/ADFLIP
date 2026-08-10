@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 import argparse
+import concurrent.futures
 import json
 import os
+import shutil
 import sys
+import threading
 import time
 from pathlib import Path
-from urllib.request import urlopen, Request
-from urllib.error import HTTPError, URLError
-import shutil
-import concurrent.futures
+
+import requests
 from tqdm.auto import tqdm
 
 DEFAULT_BASE_URL = "https://files.rcsb.org/download/{pdb_id}.cif.gz"
+
+_thread_local = threading.local()
+
+
+def _get_session():
+    if not hasattr(_thread_local, "session"):
+        session = requests.Session()
+        session.headers.update({"User-Agent": "ADFLIP-downloader/1.0"})
+        _thread_local.session = session
+    return _thread_local.session
 
 
 def _normalize_ids(data):
@@ -43,23 +54,22 @@ def _download_one(pdb_id, out_dir, base_url, overwrite, retries, timeout, subdir
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     url = base_url.format(pdb_id=pdb_id_upper)
+    session = _get_session()
 
     last_err = None
     for attempt in range(1, retries + 1):
         try:
-            req = Request(url, headers={"User-Agent": "ADFLIP-downloader/1.0"})
-            with urlopen(req, timeout=timeout) as r:
+            with session.get(url, timeout=timeout, stream=True) as r:
+                if r.status_code == 404:
+                    return (pdb_id_lower, "404")
+                r.raise_for_status()
                 tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
                 with open(tmp_path, "wb") as f:
-                    shutil.copyfileobj(r, f)
+                    shutil.copyfileobj(r.raw, f)
                 os.replace(tmp_path, out_path)
             return (pdb_id_lower, "ok")
-        except HTTPError as e:
-            last_err = f"HTTPError {e.code}"
-            if e.code == 404:
-                return (pdb_id_lower, "404")
-        except URLError as e:
-            last_err = f"URLError {e.reason}"
+        except requests.RequestException as e:
+            last_err = f"RequestException {e}"
         except Exception as e:
             last_err = f"Error {e}"
 

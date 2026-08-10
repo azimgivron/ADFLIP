@@ -322,11 +322,77 @@ def parse_structure(path_or_name: str):
     if ".pdb" in path_or_name:
         parser = PDBParser(QUIET=True)
         return parser.get_structure("structure", path_or_name)
-    parser = MMCIFParser(QUIET=True, auth_chains=False)
+    parser = AllAltlocMMCIFParser(QUIET=True, auth_chains=False)
     if path_or_name.endswith(".gz"):
         with gzip.open(path_or_name, "rt", errors="ignore") as f:
             return parser.get_structure("structure", f)
     return parser.get_structure("structure", path_or_name)
+
+
+def _normalize_duplicate_residue_altlocs(mmcif_dict, auth_chains=True, auth_residues=True):
+    # Biopython rejects point-mutated residues if one residue alternative has
+    # blank atom altlocs. Normalize those blanks before StructureBuilder runs.
+    alt_ids = mmcif_dict.get("_atom_site.label_alt_id")
+    comp_ids = mmcif_dict.get("_atom_site.label_comp_id")
+    if not alt_ids or not comp_ids:
+        return
+
+    # MMCIF2Dict values may be immutable-ish parser-owned lists; replace the
+    # atom-site altloc column with a mutable copy that Biopython will read.
+    alt_ids = list(alt_ids)
+    mmcif_dict["_atom_site.label_alt_id"] = alt_ids
+
+    # Use the same chain and residue-id columns that MMCIFParser will use.
+    if auth_chains and "_atom_site.auth_asym_id" in mmcif_dict:
+        chain_ids = mmcif_dict["_atom_site.auth_asym_id"]
+    else:
+        chain_ids = mmcif_dict["_atom_site.label_asym_id"]
+
+    if auth_residues and "_atom_site.auth_seq_id" in mmcif_dict:
+        seq_ids = mmcif_dict["_atom_site.auth_seq_id"]
+    else:
+        seq_ids = mmcif_dict["_atom_site.label_seq_id"]
+
+    icode_ids = mmcif_dict.get("_atom_site.pdbx_PDB_ins_code", ["?"] * len(comp_ids))
+    group_ids = mmcif_dict.get("_atom_site.group_PDB", ["ATOM"] * len(comp_ids))
+    model_ids = mmcif_dict.get("_atom_site.pdbx_PDB_model_num", [""] * len(comp_ids))
+    groups = {}
+
+    # Group atoms by the residue identity Biopython uses before considering
+    # residue name. Different comp_ids in one group indicate residue disorder.
+    for i, comp_id in enumerate(comp_ids):
+        hetatm_flag = " "
+        if group_ids[i] == "HETATM":
+            hetatm_flag = "W" if comp_id in {"HOH", "WAT"} else "H"
+        icode = " " if icode_ids[i] in {".", "?"} else icode_ids[i]
+        key = (model_ids[i], chain_ids[i], seq_ids[i], icode, hetatm_flag)
+        groups.setdefault(key, []).append(i)
+
+    for atom_indices in groups.values():
+        explicit_by_comp = {}
+        for i in atom_indices:
+            alt_id = alt_ids[i]
+            if alt_id not in {".", "?", " "}:
+                explicit_by_comp.setdefault(comp_ids[i], []).append(alt_id)
+        if len(explicit_by_comp) < 2:
+            continue
+
+        # Fill blank altlocs only inside duplicate-residue groups. Prefer the
+        # altloc already used by that residue name; otherwise use any group alt.
+        first_alt = next(iter(explicit_by_comp.values()))[0]
+        for i in atom_indices:
+            if alt_ids[i] in {".", "?", " "}:
+                alt_ids[i] = explicit_by_comp.get(comp_ids[i], [first_alt])[0]
+
+
+class AllAltlocMMCIFParser(MMCIFParser):
+    def _build_structure(self, structure_id):
+        _normalize_duplicate_residue_altlocs(
+            self._mmcif_dict,
+            auth_chains=self.auth_chains,
+            auth_residues=self.auth_residues,
+        )
+        return super()._build_structure(structure_id)
 
 
 class _NonWaterHydrogenSelect(Select):
@@ -428,7 +494,7 @@ def parse_mmcif_to_structure_data(path_or_name,parser_chain_id = None,ion_center
         internal_chain_index += 1
         chain_id_map[chainid] = internal_chain_index
 
-        for residue in chain:
+        for residue in chain.get_unpacked_list():
             resname = residue.get_resname().strip()
             if resname in water_resnames:
                 continue
@@ -443,7 +509,7 @@ def parse_mmcif_to_structure_data(path_or_name,parser_chain_id = None,ion_center
             is_protein_res = resname in protein_residues
             is_nucleotide_res = resname in nucleotide_residues
 
-            for atom in residue:
+            for atom in residue.get_unpacked_list():
                 element = (atom.element or "").strip().upper()
                 atom_name = atom.get_name()
                 if element in {"H", "D"} or atom_name.startswith("H"):
