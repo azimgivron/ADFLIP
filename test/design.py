@@ -16,10 +16,10 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from ema_pytorch import EMA
-from model.discrete_flow_aa import DiscreteFlow_AA
-from model.zoidberg.zoidberg_GNN import Zoidberg_GNN
-from data import all_atom_parse as aap
-from data.residue_config import configure as configure_residues
+from adflip.model.discrete_flow_aa import DiscreteFlow_AA
+from adflip.model.zoidberg.zoidberg_GNN import Zoidberg_GNN
+from adflip.data import all_atom_parse as aap
+from adflip.data.residue_config import configure as configure_residues
 
 class Config:
     def __init__(self, dictionary):

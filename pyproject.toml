@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adflip"
+version = "0.1.0"
+description = "All-atom inverse protein folding through discrete flow matching"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+license = "MIT"
+license-files = ["LICENSE.txt"]
+authors = [
+  { name = "ADFLIP authors" },
+]
+dependencies = [
+  "biopython==1.84",
+  "ema-pytorch==0.4.8",
+  "hydra-core",
+  "lightning",
+  "matplotlib==3.9.1",
+  "numpy==1.24.0",
+  "omegaconf",
+  "pandas==2.2.3",
+  "prody==2.6.1",
+  "pyyaml==6.0.2",
+  "requests",
+  "scipy==1.14.1",
+  "sortedcontainers==2.4.0",
+  "torch==2.1.0",
+  "torch-geometric",
+  "torchmetrics",
+  "tqdm==4.66.5",
+  "wandb",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[project.scripts]
+adflip-train = "adflip.trainer:main"
+adflip-download-data = "adflip.data.download_data:main"
+adflip-parse-dataset = "adflip.data.parser_dataset:main"
+adflip-export-sequences = "adflip.data.export_parsed_sequences:main"
+adflip-build-mmseqs-clusters = "adflip.data.build_mmseqs_clusters:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"adflip.data" = ["misc/*.txt"]
+"PIPPack.data" = ["stereo_chemical_props.txt"]
+"PIPPack" = [
+  "config/**/*.yaml",
+  "config/inference_ensemble_sc",
+  "env/*.yaml",
+  "images/*.pdf",
+  "model_weights/*.pickle",
+  "model_weights/*.pt",
+]

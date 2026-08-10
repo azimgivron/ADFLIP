@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export PYTHONPATH=$PWD:${PYTHONPATH:-}
+export PYTHONPATH=$PWD/src:${PYTHONPATH:-}
 
 DATA_DIR="${DATA_DIR:-dataset}"
 
 # 1) Download mmCIF files from RCSB (uncomment as needed)
 #    Train/valid: download asymmetric unit
-python3 data/download_data.py --json data/split/train.json --out_dir ${DATA_DIR}/train
-python3 data/download_data.py --json data/split/valid.json --out_dir ${DATA_DIR}/valid
+python3 -m adflip.data.download_data --json data/split/train.json --out_dir ${DATA_DIR}/train
+python3 -m adflip.data.download_data --json data/split/valid.json --out_dir ${DATA_DIR}/valid
 #    Test: download biological assembly 1 only
-python3 data/download_data.py --json data/split/test_metal.json --out_dir ${DATA_DIR}/test_metal \
+python3 -m adflip.data.download_data --json data/split/test_metal.json --out_dir ${DATA_DIR}/test_metal \
   --base_url "https://files.rcsb.org/download/{pdb_id}-assembly1.cif.gz"
-python3 data/download_data.py --json data/split/test_small_molecule.json --out_dir ${DATA_DIR}/test_small_molecule \
+python3 -m adflip.data.download_data --json data/split/test_small_molecule.json --out_dir ${DATA_DIR}/test_small_molecule \
   --base_url "https://files.rcsb.org/download/{pdb_id}-assembly1.cif.gz"
-python3 data/download_data.py --json data/split/test_nucleotide.json --out_dir ${DATA_DIR}/test_nucleotide \
+python3 -m adflip.data.download_data --json data/split/test_nucleotide.json --out_dir ${DATA_DIR}/test_nucleotide \
   --base_url "https://files.rcsb.org/download/{pdb_id}-assembly1.cif.gz"
 
 # 2) Parse mmCIF files into .npz (output: ${DATA_DIR}/*_parsed/)
@@ -27,7 +27,7 @@ bash src/extract_sequences_all.sh
 bash src/cluster_train_valid_mmseqs.sh
 
 # 5) Build cluster split files (output: data/cluster/)
-python3 data/build_mmseqs_clusters.py \
+python3 -m adflip.data.build_mmseqs_clusters \
   --train_tsv data/cluster/mmseqs/mmseqs_train/train_clusters.tsv \
   --valid_tsv data/cluster/mmseqs/mmseqs_valid/valid_clusters.tsv \
   --out_dir data/cluster

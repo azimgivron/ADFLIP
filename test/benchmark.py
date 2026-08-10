@@ -5,12 +5,12 @@ import os
 from tqdm import tqdm
 import torch.nn.functional as F
 import numpy as np
-from data import all_atom_parse as aap
-from data.all_atom_parse import index_to_token,restype_3to1
-from data.residue_config import configure as configure_residues
+from adflip.data import all_atom_parse as aap
+from adflip.data.all_atom_parse import index_to_token,restype_3to1
+from adflip.data.residue_config import configure as configure_residues
 import argparse
-from model.discrete_flow_aa import DiscreteFlow_AA
-from model.zoidberg.zoidberg_GNN import Zoidberg_GNN
+from adflip.model.discrete_flow_aa import DiscreteFlow_AA
+from adflip.model.zoidberg.zoidberg_GNN import Zoidberg_GNN
 
 
 

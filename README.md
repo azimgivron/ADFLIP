@@ -11,8 +11,33 @@ conda activate ADFLIP
 pip install -r requirements.txt
 pip install torch-cluster -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
-pip install hydra-core
+pip install -e .
 conda install -c conda-forge -c bioconda mmseqs2
+```
+
+## Using ADFLIP as a dependency
+
+The Python package now lives under `src/adflip`, so downstream code can import it
+without adding the repository root to `PYTHONPATH`:
+
+```python
+from adflip.model.discrete_flow_aa import DiscreteFlow_AA
+from adflip.model.zoidberg.zoidberg_GNN import Zoidberg_GNN
+from adflip.data.residue_config import configure
+```
+
+For local development:
+
+```bash
+pip install -e .
+```
+
+From another project, install from a local path or Git URL:
+
+```bash
+pip install /path/to/ADFLIP
+# or
+pip install "git+https://github.com/<owner>/<repo>.git"
 ```
 
 
@@ -22,8 +47,8 @@ To train ADFLIP from scratch:
 
 ```bash
 conda activate ADFLIP
-export PYTHONPATH=$PWD:$PYTHONPATH
-python3 trainer.py --config_path config/train_v1.yaml
+adflip-train --config_path config/train_v1.yaml
+# or: python3 -m adflip.trainer --config_path config/train_v1.yaml
 ```
 
 Training configuration (hyperparameters, data paths, wandb logging, etc.) can be modified in `config/train_v1.yaml`.
