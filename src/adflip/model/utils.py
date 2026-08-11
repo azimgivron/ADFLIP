@@ -35,13 +35,13 @@ def pippack_model_weight_path(filename: str):
     return resources.files("PIPPack").joinpath("model_weights", filename)
 
 
-def _batch_value(data: Mapping[str, torch.Tensor] | Any, key: str) -> torch.Tensor:
+def batch_value(data: Mapping[str, torch.Tensor] | Any, key: str) -> torch.Tensor:
     if isinstance(data, Mapping):
         return data[key]
     return getattr(data, key)
 
 
-def _has_batch_value(data: Mapping[str, torch.Tensor] | Any, key: str) -> bool:
+def has_batch_value(data: Mapping[str, torch.Tensor] | Any, key: str) -> bool:
     if isinstance(data, Mapping):
         return key in data
     return hasattr(data, key)
@@ -53,10 +53,10 @@ def protein_center_mask(
     require_backbone: bool = True,
 ) -> torch.Tensor:
     center_mask = (
-        _batch_value(data, "is_center").bool() & _batch_value(data, "is_protein").bool()
+        batch_value(data, "is_center").bool() & batch_value(data, "is_protein").bool()
     )
-    if require_backbone and _has_batch_value(data, "backbone_mask"):
-        center_mask = center_mask & _batch_value(data, "backbone_mask").bool()
+    if require_backbone and has_batch_value(data, "backbone_mask"):
+        center_mask = center_mask & batch_value(data, "backbone_mask").bool()
     return center_mask
 
 
@@ -67,19 +67,9 @@ def designable_center_mask(
     mask_field: str = "mask_chain",
 ) -> torch.Tensor:
     center_mask = protein_center_mask(data, require_backbone=require_backbone)
-    if _has_batch_value(data, mask_field):
-        center_mask = center_mask & _batch_value(data, mask_field).bool()
+    if has_batch_value(data, mask_field):
+        center_mask = center_mask & batch_value(data, mask_field).bool()
     return center_mask
-
-
-def center_residue_targets(
-    data: Mapping[str, torch.Tensor] | Any,
-    *,
-    require_backbone: bool = True,
-) -> torch.Tensor:
-    return _batch_value(data, "residue_token")[
-        protein_center_mask(data, require_backbone=require_backbone)
-    ]
 
 
 def center_loss_mask(
@@ -89,13 +79,13 @@ def center_loss_mask(
     mask_field: str = "mask_chain",
 ) -> torch.Tensor:
     center_mask = protein_center_mask(data, require_backbone=require_backbone)
-    if not _has_batch_value(data, mask_field):
+    if not has_batch_value(data, mask_field):
         return torch.ones(
             int(center_mask.sum().item()),
             dtype=torch.bool,
             device=center_mask.device,
         )
-    return _batch_value(data, mask_field)[center_mask].bool()
+    return batch_value(data, mask_field)[center_mask].bool()
 
 
 def center_interaction_mask(
@@ -105,13 +95,13 @@ def center_interaction_mask(
     require_backbone: bool = True,
 ) -> torch.Tensor:
     center_mask = protein_center_mask(data, require_backbone=require_backbone)
-    if not _has_batch_value(data, interaction_field):
+    if not has_batch_value(data, interaction_field):
         return torch.zeros(
             int(center_mask.sum().item()),
             dtype=torch.bool,
             device=center_mask.device,
         )
-    return _batch_value(data, interaction_field)[center_mask].bool()
+    return batch_value(data, interaction_field)[center_mask].bool()
 
 
 def interacting_protein_residue_indices(
@@ -119,56 +109,12 @@ def interacting_protein_residue_indices(
     *,
     interaction_field: str = "interact_non_protein_res",
 ) -> torch.Tensor:
-    is_protein = _batch_value(data, "is_protein").bool()
-    if not _has_batch_value(data, interaction_field):
+    is_protein = batch_value(data, "is_protein").bool()
+    if not has_batch_value(data, interaction_field):
         return torch.empty(0, dtype=torch.long, device=is_protein.device)
-    interaction_mask = _batch_value(data, interaction_field).bool()
-    residue_index = _batch_value(data, "residue_index")
+    interaction_mask = batch_value(data, interaction_field).bool()
+    residue_index = batch_value(data, "residue_index")
     return residue_index[is_protein][interaction_mask[is_protein]].unique()
-
-
-def masked_residue_cross_entropy(
-    logits: torch.Tensor,
-    targets: torch.Tensor,
-    mask: torch.Tensor | None = None,
-    *,
-    label_smoothing: bool | float = False,
-) -> torch.Tensor:
-    if mask is not None:
-        if mask.sum() == 0:
-            return torch.tensor(0.0, device=logits.device, dtype=logits.dtype)
-        logits = logits[mask]
-        targets = targets[mask]
-
-    targets = targets.long()
-    smoothing = float(label_smoothing) if label_smoothing else 0.0
-    if smoothing <= 0.0:
-        return F.cross_entropy(logits, targets)
-
-    target_onehot = F.one_hot(targets, num_classes=logits.size(-1)).to(
-        dtype=logits.dtype
-    )
-    target_onehot = target_onehot + smoothing / float(target_onehot.size(-1))
-    target_onehot = target_onehot / target_onehot.sum(-1, keepdim=True)
-    log_probs = F.log_softmax(logits, dim=-1)
-    return -(target_onehot * log_probs).sum(-1).mean()
-
-
-def protein_residue_cross_entropy(
-    logits: torch.Tensor,
-    data: Mapping[str, torch.Tensor] | Any,
-    *,
-    label_smoothing: bool | float = False,
-    require_backbone: bool = True,
-) -> torch.Tensor:
-    targets = center_residue_targets(data, require_backbone=require_backbone)
-    loss_mask = center_loss_mask(data, require_backbone=require_backbone)
-    return masked_residue_cross_entropy(
-        logits,
-        targets,
-        loss_mask,
-        label_smoothing=label_smoothing,
-    )
 
 
 def sampled_residue_sequence(samples: torch.Tensor) -> str:

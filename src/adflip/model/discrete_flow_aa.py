@@ -18,9 +18,10 @@ from adflip.model.abstract_discrete_flow import AbstractDiscreteMaskedFlow
 from adflip.model.utils import (
     pippack_model_weight_path,
     protein_center_mask,
-    protein_residue_cross_entropy,
     sampled_residue_sequence,
     write_packed_sidechains,
+    batch_value,
+    has_batch_value
 )
 from PIPPack.data.protein import from_pdb_file
 from PIPPack.data.top2018_dataset import collate_fn, transform_structure
@@ -61,6 +62,8 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         self.min_t = min_t
         self.sample_save_path = sample_save_path
         self.label_smoothing = config.training.label_smoothing
+        if not isinstance(self.label_smoothing, float):
+            raise TypeError("Label smoothing must be a float.")
         if sidechain_packing:
             self.sc, self.infer_cfg = self.load_sc_model(
                 device=next(self.model.parameters()).device, num_models=num_sc_models
@@ -145,12 +148,36 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         return logits
 
     def compute_loss(self, logits, data):
-        return protein_residue_cross_entropy(
-            logits,
-            data,
-            label_smoothing=self.label_smoothing,
-            require_backbone=True,
+        targets = batch_value(data, "residue_token")[
+            protein_center_mask(data, require_backbone=True)
+        ]
+        center_mask = protein_center_mask(data, require_backbone=True)
+        mask_field = "mask_chain"
+        if not has_batch_value(data, mask_field):
+            mask = torch.ones(
+                int(center_mask.sum().item()),
+                dtype=torch.bool,
+                device=center_mask.device,
+            )
+        mask = batch_value(data, mask_field)[center_mask].bool()
+        if mask is not None:
+            if mask.sum() == 0:
+                return torch.tensor(0.0, device=logits.device, dtype=logits.dtype)
+            logits = logits[mask]
+            targets = targets[mask]
+    
+        targets = targets.long()
+        smoothing = float(self.label_smoothing) if self.label_smoothing else 0.0
+        if smoothing <= 0.0:
+            return F.cross_entropy(logits, targets)
+    
+        target_onehot = F.one_hot(targets, num_classes=logits.size(-1)).to(
+            dtype=logits.dtype
         )
+        target_onehot = target_onehot + smoothing / float(target_onehot.size(-1))
+        target_onehot = target_onehot / target_onehot.sum(-1, keepdim=True)
+        log_probs = F.log_softmax(logits, dim=-1)
+        return -(target_onehot * log_probs).sum(-1).mean()
 
     def sc_packing(
         self,
