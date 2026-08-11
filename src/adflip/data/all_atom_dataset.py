@@ -299,36 +299,48 @@ class AllAtomDataset(torch.utils.data.Dataset):
             data = self.interact_residue(data)
 
             if self.dataset_type == "train":
-                return self.corrupt(data, mask_chain_id=mask_chain_id)
+                data = self.prepare_data(data, mask_chain_id=mask_chain_id)
             else:
-                return self.corrupt(
-                    data, time=np.array([self.test_time]), mask_chain_id=mask_chain_id
+                data = self.prepare_data(
+                    data,
+                    time=np.array([self.test_time]),
+                    mask_chain_id=mask_chain_id,
                 )
+            return self.corrupt(data)
 
         except Exception as e:
             print(f"Failed to parse {self.structs[idx]}", e)
             return None
 
-    def corrupt(
+    def prepare_data(
         self, data: aap.StructureData, time=None, mask_chain_id=None
     ) -> aap.StructureData:
         batch_dict = data.__dict__
 
-        # Step 1: determine which chains to mask (designable chains)
         mask_chain = np.zeros_like(batch_dict["chain_id"], dtype=bool)
         if mask_chain_id is not None:
             mask_chain_id = np.atleast_1d(mask_chain_id)
             mask_chain[np.isin(batch_dict["chain_id"], mask_chain_id)] = True
 
-        # Step 2: sample which center residues get corrupted
+        data.mask_chain = mask_chain
+        data.is_mask = mask_chain
+        data.noisy_residue_token = np.copy(batch_dict["residue_token"])
+        data.time_step = time if time is not None else np.random.uniform(0, 1, 1)
+        return data
+
+    def corrupt(self, data: aap.StructureData) -> aap.StructureData:
+        batch_dict = data.__dict__
+        mask_chain = batch_dict["mask_chain"]
+
+        # Step 1: sample which center residues get corrupted
         num_residue_tokens = batch_dict["is_center"].sum()
-        time_step = time if time is not None else np.random.uniform(0, 1, 1)
+        time_step = batch_dict["time_step"]
         u = np.random.uniform(0, 1, num_residue_tokens)
         residue_is_masked = u < (1.0 - time_step)
         # only mask residues in designable chains
         residue_is_masked[~mask_chain[batch_dict["is_center"]]] = False
 
-        # Step 3: propagate <MASK> from center to all atoms of masked residues
+        # Step 2: propagate <MASK> from center to all atoms of masked residues
         noisy_residue_token = np.copy(batch_dict["residue_token"])
         protein_positions = np.nonzero(batch_dict["is_protein"])[0]
         _check_bounds(
@@ -349,7 +361,7 @@ class AllAtomDataset(torch.utils.data.Dataset):
         noisy_residue_token[atom_should_mask] = residue_tokens["<MASK>"]
         batch_dict["noisy_residue_token"] = noisy_residue_token
 
-        # Step 4: build keep_mask — remove sidechain atoms of masked residues
+        # Step 3: build keep_mask — remove sidechain atoms of masked residues
         #   backbone atoms are always kept; sidechain atoms only kept if residue is unmasked
         keep_mask = np.ones_like(batch_dict["residue_token"], dtype=bool)
         sidechain_protein = (~batch_dict["is_backbone"]) & batch_dict["is_protein"]
@@ -361,7 +373,7 @@ class AllAtomDataset(torch.utils.data.Dataset):
         )
         keep_mask[sidechain_protein] = ~residue_is_masked[side_idx]
 
-        # Step 5: apply keep_mask to all per-atom fields
+        # Step 4: apply keep_mask to all per-atom fields
         L = batch_dict["residue_token"].shape[0]
         if keep_mask.shape[0] != L:
             raise IndexError(
@@ -378,7 +390,7 @@ class AllAtomDataset(torch.utils.data.Dataset):
             elif isinstance(arr, np.ndarray) and arr.shape[0] == L:
                 batch_dict[name] = arr[keep_mask]
 
-        # Step 6: reconstruct StructureData, preserving extra metadata (e.g., assemblies)
+        # Step 5: reconstruct StructureData, preserving extra metadata (e.g., assemblies)
         update_mask_chain = mask_chain[keep_mask]
         core = {k: v for k, v in batch_dict.items() if k in aap.structure_data_fields}
         extra = {

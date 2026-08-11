@@ -1,8 +1,7 @@
 import os
 import pickle
-import shutil
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Mapping
 
 import torch
 import torch.nn as nn
@@ -13,16 +12,10 @@ from adflip.data.all_atom_parse import (
     make_merged_pdb,
     pdb2data,
     residue_tokens,
+    restype_1to3,
 )
 from adflip.model.abstract_discrete_flow import AbstractDiscreteMaskedFlow
-from adflip.model.utils import (
-    pippack_model_weight_path,
-    protein_center_mask,
-    sampled_residue_sequence,
-    write_packed_sidechains,
-    batch_value,
-    has_batch_value
-)
+from adflip.model.utils import pippack_model_weight_path
 from PIPPack.data.protein import from_pdb_file
 from PIPPack.data.top2018_dataset import collate_fn, transform_structure
 from PIPPack.ensembled_inference import sample_epoch
@@ -52,6 +45,7 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         sidechain_packing=False,
         sample_save_path="results/sample_seq/",
         num_sc_models=1,
+        **kwargs,
     ):
         AbstractDiscreteMaskedFlow.__init__(
             self, mask_token_id=residue_tokens["<MASK>"]
@@ -148,36 +142,28 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         return logits
 
     def compute_loss(self, logits, data):
-        targets = batch_value(data, "residue_token")[
-            protein_center_mask(data, require_backbone=True)
-        ]
-        center_mask = protein_center_mask(data, require_backbone=True)
-        mask_field = "mask_chain"
-        if not has_batch_value(data, mask_field):
-            mask = torch.ones(
-                int(center_mask.sum().item()),
-                dtype=torch.bool,
-                device=center_mask.device,
-            )
-        mask = batch_value(data, mask_field)[center_mask].bool()
-        if mask is not None:
-            if mask.sum() == 0:
-                return torch.tensor(0.0, device=logits.device, dtype=logits.dtype)
-            logits = logits[mask]
-            targets = targets[mask]
-    
-        targets = targets.long()
-        smoothing = float(self.label_smoothing) if self.label_smoothing else 0.0
-        if smoothing <= 0.0:
-            return F.cross_entropy(logits, targets)
-    
-        target_onehot = F.one_hot(targets, num_classes=logits.size(-1)).to(
-            dtype=logits.dtype
-        )
-        target_onehot = target_onehot + smoothing / float(target_onehot.size(-1))
-        target_onehot = target_onehot / target_onehot.sum(-1, keepdim=True)
-        log_probs = F.log_softmax(logits, dim=-1)
-        return -(target_onehot * log_probs).sum(-1).mean()
+        if self.label_smoothing:
+            center_mask = data["is_center"] & data["is_protein"]
+            if "backbone_mask" in data:
+                center_mask = center_mask & data["backbone_mask"]
+            target = data["residue_token"][center_mask]
+            mask_for_loss = data["mask_chain"][center_mask]
+            if mask_for_loss.sum() == 0:
+                return torch.tensor(0.0).to(logits.device)
+            S_onehot = F.one_hot(target, num_classes=logits.size(-1)).float()
+            S_onehot = S_onehot + 0.1 / float(S_onehot.size(-1))
+            S_onehot = S_onehot / S_onehot.sum(-1, keepdim=True)
+            log_probs = F.log_softmax(logits, dim=-1)
+            loss = -(S_onehot * log_probs).sum(-1)
+            loss_av = torch.sum(loss * mask_for_loss) / torch.sum(mask_for_loss)
+            return loss_av
+        else:
+            center_mask = data["is_center"] & data["is_protein"]
+            if "backbone_mask" in data:
+                center_mask = center_mask & data["backbone_mask"]
+            target = data["residue_token"][center_mask]
+            loss = F.cross_entropy(logits, target)
+            return loss
 
     def sc_packing(
         self,
@@ -186,11 +172,14 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         t,
         sample_save_folder,
         device,
-        *,
-        pdb2data_fn: Callable[..., Any] = pdb2data,
-        make_merged_pdb_fn: Callable[..., Any] = make_merged_pdb,
     ):
-        seq = sampled_residue_sequence(samples[0])
+        protein_name = pdb_path.split("/")[-1].replace(".pdb", "") + "_0"
+        decode_mapping = {j: i for i, j in residue_tokens.items()}
+        restype_3to1 = {v: k for k, v in restype_1to3.items()}
+        samples[0][samples[0] > 21] = 10
+        seq = "".join(
+            [restype_3to1[decode_mapping[i.item()]] for i in samples[0]]
+        )
         proteins = replace_protein_sequence(
             vars(from_pdb_file(pdb_path, mse_to_met=True, ignore_non_std=False)),
             pdb_path,
@@ -202,7 +191,7 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         ]
         batch = collate_fn([proteins[0][1]])
         sample_results = sample_epoch(
-            self.models,
+            self.sc,
             batch,
             self.infer_cfg["temperature"],
             device,
@@ -210,12 +199,19 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
             resample=False,
             resample_args=self.infer_cfg["resample_args"],
         )
-        protein_pdb = pdbs_from_prediction(sample_results)[0]
-        output_path = write_packed_sidechains(
-            protein_pdb, pdb_path, sample_save_folder, t
+        protein_strings = pdbs_from_prediction(sample_results)
+        save_path = os.path.join(sample_save_folder, f"side_chain_t={round(t, 3)}")
+        if os.path.exists(save_path) == False:
+            os.makedirs(save_path, exist_ok=True)
+        output_path = os.path.join(save_path, protein_name + ".pdb")
+        with open(output_path, "w") as f:
+            f.write(protein_strings[0])
+        make_merged_pdb(pdb_path, output_path)
+        data = pdb2data(
+            output_path,
+            next(self.model.parameters()).device,
         )
-        make_merged_pdb_fn(pdb_path, output_path)
-        return pdb2data_fn(output_path, device)
+        return data
 
     def test(self, dataloader):
         device = next(self.model.parameters()).device
@@ -310,28 +306,24 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
             interact_non_protein_perplexity,
         )
 
-    def corrupt_data_by_sample(
-        self,
-        data,
-        time,
-        sample,
-        *,
-        mask_token_id: int = residue_tokens["<MASK>"],
-        require_backbone: bool = True,
-    ) -> dict[str, torch.Tensor]:
+    def corrupt_data_by_sample(self, data, time, sample):
         """Corrupt data for one sampling step: inject current samples, remove sidechains of masked residues."""
-        if mask_token_id is None:
-            mask_token_id = residue_tokens["<MASK>"]
-
         device = data["residue_token"].device
         noisy_data = {k: v.squeeze().clone() for k, v in data.items()}
-        designable_mask = protein_center_mask(
-            noisy_data, require_backbone=require_backbone
-        )
-        noisy_data["residue_token"][designable_mask] = sample.reshape(-1)
 
+        # Step 1: replace designable positions with current sample tokens
+        designable_mask = (
+            noisy_data["is_center"].bool() & noisy_data["is_protein"].bool()
+        )
+        if "backbone_mask" in noisy_data:
+            designable_mask = designable_mask & noisy_data["backbone_mask"].bool()
+        noisy_data["residue_token"][designable_mask] = sample
+
+        # Step 2: which center residues are still <MASK>?
         center_tokens = noisy_data["residue_token"][noisy_data["is_center"].bool()]
-        residue_is_masked = center_tokens == mask_token_id
+        residue_is_masked = center_tokens == residue_tokens["<MASK>"]
+
+        # Step 3: propagate <MASK> from center to all atoms of masked residues
         is_protein = noisy_data["is_protein"].bool()
         res_idx_protein = noisy_data["residue_index"][is_protein]
         if res_idx_protein.numel() > 0:
@@ -339,34 +331,31 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         atom_masked = residue_is_masked[res_idx_protein]
         noisy_data["residue_token"][is_protein] = torch.where(
             atom_masked,
-            torch.tensor(mask_token_id, device=device),
+            torch.tensor(residue_tokens["<MASK>"], device=device),
             noisy_data["residue_token"][is_protein],
         )
 
+        # Step 4: build keep_mask — remove sidechain atoms of masked residues
+        #   backbone atoms are always kept; sidechain atoms only kept if residue is unmasked
         keep_mask = torch.ones_like(noisy_data["residue_token"], dtype=torch.bool)
         sidechain_protein = ~noisy_data["is_backbone"].bool() & is_protein
         keep_mask[sidechain_protein] = ~residue_is_masked[
             noisy_data["residue_index"][sidechain_protein]
         ]
 
+        # Step 5: apply keep_mask to all per-atom fields
         time_tensor = torch.ones((1, 1), device=device) * time
         for name, item in noisy_data.items():
             if name == "time_step":
                 noisy_data[name] = time_tensor
             elif name not in self._CORRUPT_SKIP_FIELDS:
                 noisy_data[name] = item[keep_mask].unsqueeze(0)
-        return noisy_data
+        return data, noisy_data
 
-    def _prepare_sampling_io(
-        self,
-        pdb_path,
-        *,
-        pdb2data_fn: Callable[..., Any] = pdb2data,
-        cif_to_pdb_fn: Callable[..., Any] = cif_to_pdb,
-    ) -> tuple[Any, str, str, torch.device | str]:
+    def _prepare_sampling_io(self, pdb_path):
         """Parse PDB/CIF, convert CIF->PDB if needed, set up save folder."""
         device = next(self.model.parameters()).device
-        data = pdb2data_fn(pdb_path, device)
+        data = pdb2data(pdb_path, device)
         basename = os.path.basename(pdb_path)
         if "cif" in pdb_path:
             stem = basename.replace(".cif.gz", "").replace(".cif", "")
@@ -374,12 +363,12 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
             os.makedirs(save_folder, exist_ok=True)
             cif_path = pdb_path
             pdb_path = os.path.join(save_folder, stem + ".pdb")
-            cif_to_pdb_fn(cif_path, pdb_path)
+            cif_to_pdb(cif_path, pdb_path)
         else:
             stem = basename.replace(".pdb", "")
             save_folder = os.path.join(self.sample_save_path, stem)
             os.makedirs(save_folder, exist_ok=True)
-            shutil.copy2(pdb_path, os.path.join(save_folder, basename))
+            os.system(f"cp {pdb_path} {save_folder}")
         return data, pdb_path, save_folder, device
 
     def adaptive_sample(
@@ -390,6 +379,7 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         temp=0.1,
         noise=1,
         threshold=0.8,
+        regular_residue=True,
     ):
 
         self.model.eval()
@@ -566,7 +556,7 @@ class DiscreteFlow_AA(AbstractDiscreteMaskedFlow, nn.Module):
         noisy_data["residue_token"] = data["noisy_residue_token"]
         times = data["time_step"]
 
-        # b, t = noisy_data["residue_token"].size()
+        b, t = noisy_data["residue_token"].size()
         assert (times < 1.1).all()  # 0 to 1 not 0 to 1000
 
         logits = self.endpoint_logits(noisy_data, times)
