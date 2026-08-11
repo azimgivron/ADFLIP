@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+
 try:
-    from PIPPack.data.rigid_utils import Rigid, Rotation
     import PIPPack.data.residue_constants as rc
+    from PIPPack.data.rigid_utils import Rigid, Rotation
 except:
-    from PIPPack.data.rigid_utils import Rigid, Rotation
     import PIPPack.data.residue_constants as rc
+    from PIPPack.data.rigid_utils import Rigid, Rotation
+
 
 def make_atom14_masks(S):
     """Construct denser atom positions (14 dimensions instead of 37)."""
@@ -26,9 +28,7 @@ def make_atom14_masks(S):
             ]
         )
 
-        restype_atom14_mask.append(
-            [(1.0 if name else 0.0) for name in atom_names]
-        )
+        restype_atom14_mask.append([(1.0 if name else 0.0) for name in atom_names])
 
     # Add dummy mapping for restype 'UNK'
     restype_atom14_to_atom37.append([0] * 14)
@@ -61,9 +61,7 @@ def make_atom14_masks(S):
     residx_atom37_to_atom14 = restype_atom37_to_atom14[protein_aatype].long()
 
     # create the corresponding mask
-    restype_atom37_mask = torch.zeros(
-        [21, 37], dtype=torch.float32, device=S.device
-    )
+    restype_atom37_mask = torch.zeros([21, 37], dtype=torch.float32, device=S.device)
     for restype, restype_letter in enumerate(rc.restypes):
         restype_name = rc.restype_1to3[restype_letter]
         atom_names = rc.residue_atoms[restype_name]
@@ -73,16 +71,26 @@ def make_atom14_masks(S):
 
     residx_atom37_mask = restype_atom37_mask[protein_aatype]
 
-    return residx_atom37_to_atom14, residx_atom37_mask, residx_atom14_to_atom37, residx_atom14_mask
+    return (
+        residx_atom37_to_atom14,
+        residx_atom37_mask,
+        residx_atom14_to_atom37,
+        residx_atom14_mask,
+    )
 
 
-def atom14_to_atom37(atom14_data: torch.Tensor,  # (B, N, 14, 3)
-                     residx_atom37_to_atom14: torch.Tensor, # (B, N, 37)
-                     atom37_atom_exists: torch.Tensor # (B, N, 37)
-                    ) -> torch.Tensor:  # (B, N, 37, 3)
+def atom14_to_atom37(
+    atom14_data: torch.Tensor,  # (B, N, 14, 3)
+    residx_atom37_to_atom14: torch.Tensor,  # (B, N, 37)
+    atom37_atom_exists: torch.Tensor,  # (B, N, 37)
+) -> torch.Tensor:  # (B, N, 37, 3)
     """Convert atom14 to atom37 representation."""
 
-    atom37_data = torch.gather(atom14_data, dim=2, index=residx_atom37_to_atom14.unsqueeze(-1).expand(-1, -1, -1, 3).long())
+    atom37_data = torch.gather(
+        atom14_data,
+        dim=2,
+        index=residx_atom37_to_atom14.unsqueeze(-1).expand(-1, -1, -1, 3).long(),
+    )
 
     atom37_data *= atom37_atom_exists[..., None].float()
 
@@ -112,9 +120,7 @@ def torsion_angles_to_frames(
     bb_rot[..., 1] = 1
 
     # [*, N, 8, 2]
-    alpha = torch.cat(
-        [bb_rot.expand(*alpha.shape[:-2], -1, -1), alpha], dim=-2
-    )
+    alpha = torch.cat([bb_rot.expand(*alpha.shape[:-2], -1, -1), alpha], dim=-2)
 
     # [*, N, 8, 3, 3]
     # Produces rotation matrices of the form:
@@ -181,9 +187,7 @@ def frames_and_literature_positions_to_atom14_pos(
     t_atoms_to_global = r[..., None, :] * group_mask
 
     # [*, N, 14]
-    t_atoms_to_global = t_atoms_to_global.map_tensor_fn(
-        lambda x: torch.sum(x, dim=-1)
-    )
+    t_atoms_to_global = t_atoms_to_global.map_tensor_fn(lambda x: torch.sum(x, dim=-1))
 
     # [*, N, 14, 1]
     atom_mask = atom_mask[aatype, ...].unsqueeze(-1)

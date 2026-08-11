@@ -1,6 +1,7 @@
 import bisect
 import time
-from typing import Callable, Any
+from typing import Any, Callable
+
 from sortedcontainers import SortedList
 
 

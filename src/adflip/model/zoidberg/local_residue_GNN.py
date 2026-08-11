@@ -1,13 +1,13 @@
 from __future__ import print_function
 
 import itertools
+import math
 import sys
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-import math
+import torch.nn.functional as F
 
 
 class PositionWiseFeedForward(torch.nn.Module):
@@ -60,7 +60,7 @@ class EncLayer(torch.nn.Module):
         self.norm2 = torch.nn.LayerNorm(num_hidden)
         self.norm3 = torch.nn.LayerNorm(num_hidden)
 
-        self.W1 = torch.nn.Linear(num_hidden +  2*num_in, num_hidden, bias=True)
+        self.W1 = torch.nn.Linear(num_hidden + 2 * num_in, num_hidden, bias=True)
         self.W2 = torch.nn.Linear(num_hidden, num_hidden, bias=True)
         self.W3 = torch.nn.Linear(num_hidden, num_hidden, bias=True)
         self.W11 = torch.nn.Linear(num_hidden + num_in, num_hidden, bias=True)

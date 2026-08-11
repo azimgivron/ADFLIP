@@ -3,14 +3,54 @@ from importlib import resources
 import numpy as np
 
 #            0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19
-restypes = ["A", "R", "N", "D", "C", "Q", "E", "G", "H", "I", "L", "K", "M", "F", "P", "S", "T", "W", "Y", "V"]
+restypes = [
+    "A",
+    "R",
+    "N",
+    "D",
+    "C",
+    "Q",
+    "E",
+    "G",
+    "H",
+    "I",
+    "L",
+    "K",
+    "M",
+    "F",
+    "P",
+    "S",
+    "T",
+    "W",
+    "Y",
+    "V",
+]
 restypes_with_x = restypes + ["X"]
 restype_order = {restype: i for i, restype in enumerate(restypes)}
 restype_num = len(restypes)  # := 20.
 
-restype_1to3 = {"A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS", "Q": "GLN", "E": "GLU", "G": "GLY",
-                "H": "HIS", "I": "ILE", "L": "LEU", "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO", "S": "SER",
-                "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL"}
+restype_1to3 = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+}
 restype_3to1 = {v: k for k, v in restype_1to3.items()}
 
 # Atoms positions relative to the 8 rigid groups, defined by the pre-omega, phi,
@@ -234,7 +274,7 @@ rigid_group_atom_positions = {
         ["CG1", 4, (0.540, 1.429, -0.000)],
         ["CG2", 4, (0.533, -0.776, 1.203)],
     ],
-    "UNK": []
+    "UNK": [],
 }
 
 # A list of atoms (excluding hydrogen) for each AA type. PDB naming convention.
@@ -256,7 +296,22 @@ residue_atoms = {
     "PRO": ["C", "CA", "CB", "CG", "CD", "N", "O"],
     "SER": ["C", "CA", "CB", "N", "O", "OG"],
     "THR": ["C", "CA", "CB", "CG2", "N", "O", "OG1"],
-    "TRP": ["C", "CA", "CB", "CG", "CD1", "CD2", "CE2", "CE3", "CZ2", "CZ3", "CH2", "N", "NE1", "O"],
+    "TRP": [
+        "C",
+        "CA",
+        "CB",
+        "CG",
+        "CD1",
+        "CD2",
+        "CE2",
+        "CE3",
+        "CZ2",
+        "CZ3",
+        "CH2",
+        "N",
+        "NE1",
+        "O",
+    ],
     "TYR": ["C", "CA", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "N", "O", "OH"],
     "VAL": ["C", "CA", "CB", "CG1", "CG2", "N", "O"],
 }
@@ -288,7 +343,12 @@ van_der_waals_radius = {
 
 # Sidechain bond lengths (from Rosetta database)
 sc_bond_lengths = {
-    "ARG": {("CB", "CG"): 1.5204, ("CG", "CD"): 1.4854, ("CD", "NE"): 1.4541, ("NE", "CZ"): 1.3473},
+    "ARG": {
+        ("CB", "CG"): 1.5204,
+        ("CG", "CD"): 1.4854,
+        ("CD", "NE"): 1.4541,
+        ("NE", "CZ"): 1.3473,
+    },
     "ASN": {("CB", "CG"): 1.5035, ("CG", "OD1"): 1.2364},
     "ASP": {("CB", "CG"): 1.5228, ("CG", "OD1"): 1.2082},
     "CYS": {("CB", "SG"): 1.8088},
@@ -297,7 +357,12 @@ sc_bond_lengths = {
     "HIS": {("CB", "CG"): 1.4972, ("CG", "ND1"): 1.3792},
     "ILE": {("CB", "CG1"): 1.5309, ("CG1", "CD1"): 1.5117},
     "LEU": {("CB", "CG"): 1.5340, ("CG", "CD1"): 1.5227},
-    "LYS": {("CB", "CG"): 1.5229, ("CG", "CD"): 1.5213, ("CD", "CE"): 1.5216, ("CE", "NZ"): 1.4881},
+    "LYS": {
+        ("CB", "CG"): 1.5229,
+        ("CG", "CD"): 1.5213,
+        ("CD", "CE"): 1.5216,
+        ("CE", "NZ"): 1.4881,
+    },
     "MET": {("CB", "CG"): 1.5222, ("CG", "SD"): 1.8038, ("SD", "CE"): 1.7904},
     "PHE": {("CB", "CG"): 1.5022, ("CG", "CD1"): 1.3870},
     "PRO": {("CB", "CG"): 1.4906, ("CG", "CD"): 1.5055},
@@ -309,87 +374,308 @@ sc_bond_lengths = {
 }
 
 
-
 # This mapping is used when we need to store atom data in a format that requires
 # fixed atom data size for every residue (e.g. a numpy array).
-atom_types = ["N", "CA", "C", "CB", "O", "CG", "CG1", "CG2", "OG", "OG1", "SG", "CD", 
-              "CD1", "CD2", "ND1", "ND2", "OD1", "OD2", "SD", "CE", "CE1", "CE2", "CE3",
-              "NE", "NE1", "NE2", "OE1", "OE2", "CH2", "NH1", "NH2", "OH", "CZ", "CZ2",
-              "CZ3", "NZ", "OXT"]
+atom_types = [
+    "N",
+    "CA",
+    "C",
+    "CB",
+    "O",
+    "CG",
+    "CG1",
+    "CG2",
+    "OG",
+    "OG1",
+    "SG",
+    "CD",
+    "CD1",
+    "CD2",
+    "ND1",
+    "ND2",
+    "OD1",
+    "OD2",
+    "SD",
+    "CE",
+    "CE1",
+    "CE2",
+    "CE3",
+    "NE",
+    "NE1",
+    "NE2",
+    "OE1",
+    "OE2",
+    "CH2",
+    "NH1",
+    "NH2",
+    "OH",
+    "CZ",
+    "CZ2",
+    "CZ3",
+    "NZ",
+    "OXT",
+]
 atom_order = {atom_type: i for i, atom_type in enumerate(atom_types)}
 atom_type_num = len(atom_types)  # := 37.
 
-#A compact atom encoding with 14 columns
+# A compact atom encoding with 14 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
 restype_name_to_atom14_names = {
     "ALA": ["N", "CA", "C", "O", "CB", "", "", "", "", "", "", "", "", ""],
-    "ARG": ["N", "CA", "C", "O", "CB", "CG", "CD", "NE", "CZ", "NH1", "NH2", "", "", ""],
+    "ARG": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "CD",
+        "NE",
+        "CZ",
+        "NH1",
+        "NH2",
+        "",
+        "",
+        "",
+    ],
     "ASN": ["N", "CA", "C", "O", "CB", "CG", "OD1", "ND2", "", "", "", "", "", ""],
     "ASP": ["N", "CA", "C", "O", "CB", "CG", "OD1", "OD2", "", "", "", "", "", ""],
     "CYS": ["N", "CA", "C", "O", "CB", "SG", "", "", "", "", "", "", "", ""],
     "GLN": ["N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "NE2", "", "", "", "", ""],
     "GLU": ["N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "OE2", "", "", "", "", ""],
     "GLY": ["N", "CA", "C", "O", "", "", "", "", "", "", "", "", "", ""],
-    "HIS": ["N", "CA", "C", "O", "CB", "CG", "ND1", "CD2", "CE1", "NE2", "", "", "", ""],
+    "HIS": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "ND1",
+        "CD2",
+        "CE1",
+        "NE2",
+        "",
+        "",
+        "",
+        "",
+    ],
     "ILE": ["N", "CA", "C", "O", "CB", "CG1", "CG2", "CD1", "", "", "", "", "", ""],
     "LEU": ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "", "", "", "", "", ""],
     "LYS": ["N", "CA", "C", "O", "CB", "CG", "CD", "CE", "NZ", "", "", "", "", ""],
     "MET": ["N", "CA", "C", "O", "CB", "CG", "SD", "CE", "", "", "", "", "", ""],
-    "PHE": ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "", "", ""],
+    "PHE": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "CD1",
+        "CD2",
+        "CE1",
+        "CE2",
+        "CZ",
+        "",
+        "",
+        "",
+    ],
     "PRO": ["N", "CA", "C", "O", "CB", "CG", "CD", "", "", "", "", "", "", ""],
     "SER": ["N", "CA", "C", "O", "CB", "OG", "", "", "", "", "", "", "", ""],
     "THR": ["N", "CA", "C", "O", "CB", "OG1", "CG2", "", "", "", "", "", "", ""],
-    "TRP": ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "NE1", "CE2", "CE3", "CZ2", "CZ3", "CH2"],
-    "TYR": ["N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "OH", "", ""],
+    "TRP": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "CD1",
+        "CD2",
+        "NE1",
+        "CE2",
+        "CE3",
+        "CZ2",
+        "CZ3",
+        "CH2",
+    ],
+    "TYR": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "CD1",
+        "CD2",
+        "CE1",
+        "CE2",
+        "CZ",
+        "OH",
+        "",
+        "",
+    ],
     "VAL": ["N", "CA", "C", "O", "CB", "CG1", "CG2", "", "", "", "", "", "", ""],
     "UNK": ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
 }
 
 cg_atoms = {
-    'ALA': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O']],
-    'ARG': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CB', 'CG', 'CD'], ['NE', 'NH1', 'NH2', 'CZ']],
-    'ASN': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'ND2', 'OD1']],
-    'ASP': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'OD1', 'OD2']],
-    'CYS': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CA', 'CB', 'SG']],
-    'GLN': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD', 'OE1', 'NE2']],
-    'GLU': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD', 'OE1', 'OE2']],
-    'GLY': [['C', 'CA', 'N'], ['C', 'CA', 'O']],
-    'HIS': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD2', 'CE1', 'ND1', 'NE2']],
-    'ILE': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CB', 'CG1', 'CG2'], ['CB', 'CG1', 'CD1']],
-    'LEU': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD1', 'CD2']],
-    'LYS': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CB', 'CG', 'CD'], ['CD', 'CE', 'NZ']],
-    'MET': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CE', 'SD']],
-    'PHE': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ']],
-    'PRO': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CB', 'CG', 'CD']],
-    'SER': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CA', 'CB', 'OG']],
-    'THR': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CB', 'CG2', 'OG1']],
-    'TRP': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD1', 'CD2', 'CE2', 'CE3', 'CZ2', 'CZ3', 'CH2', 'NE1']],
-    'TYR': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CG', 'CD1', 'CD2', 'CE1', 'CE2', 'CZ', 'OH']],
-    'VAL': [['C', 'CA', 'CB', 'N'], ['C', 'CA', 'O'], ['CB', 'CG1', 'CG2']],
+    "ALA": [["C", "CA", "CB", "N"], ["C", "CA", "O"]],
+    "ARG": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CB", "CG", "CD"],
+        ["NE", "NH1", "NH2", "CZ"],
+    ],
+    "ASN": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CG", "ND2", "OD1"]],
+    "ASP": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CG", "OD1", "OD2"]],
+    "CYS": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CA", "CB", "SG"]],
+    "GLN": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CG", "CD", "OE1", "NE2"]],
+    "GLU": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CG", "CD", "OE1", "OE2"]],
+    "GLY": [["C", "CA", "N"], ["C", "CA", "O"]],
+    "HIS": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CG", "CD2", "CE1", "ND1", "NE2"],
+    ],
+    "ILE": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CB", "CG1", "CG2"],
+        ["CB", "CG1", "CD1"],
+    ],
+    "LEU": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CG", "CD1", "CD2"]],
+    "LYS": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CB", "CG", "CD"],
+        ["CD", "CE", "NZ"],
+    ],
+    "MET": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CG", "CE", "SD"]],
+    "PHE": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CG", "CD1", "CD2", "CE1", "CE2", "CZ"],
+    ],
+    "PRO": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CB", "CG", "CD"]],
+    "SER": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CA", "CB", "OG"]],
+    "THR": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CB", "CG2", "OG1"]],
+    "TRP": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CG", "CD1", "CD2", "CE2", "CE3", "CZ2", "CZ3", "CH2", "NE1"],
+    ],
+    "TYR": [
+        ["C", "CA", "CB", "N"],
+        ["C", "CA", "O"],
+        ["CG", "CD1", "CD2", "CE1", "CE2", "CZ", "OH"],
+    ],
+    "VAL": [["C", "CA", "CB", "N"], ["C", "CA", "O"], ["CB", "CG1", "CG2"]],
 }
 
-#A compact atom encoding with 16 columns
+# A compact atom encoding with 16 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-atom16 = ["N", "CA", "C", "O", "CB", "CG", "SG", "CD", "CD2", "ND1", "OD1", "OD2", "CE1", "NE2", "OE1", "OE2"]
+atom16 = [
+    "N",
+    "CA",
+    "C",
+    "O",
+    "CB",
+    "CG",
+    "SG",
+    "CD",
+    "CD2",
+    "ND1",
+    "OD1",
+    "OD2",
+    "CE1",
+    "NE2",
+    "OE1",
+    "OE2",
+]
 restype_name_to_atom16_names = {
-    "ASP": ["N", "CA", "C", "O", "CB", "CG", "", "", "", "", "OD1", "OD2", "", "", "", ""],
+    "ASP": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "",
+        "",
+        "",
+        "",
+        "OD1",
+        "OD2",
+        "",
+        "",
+        "",
+        "",
+    ],
     "CYS": ["N", "CA", "C", "O", "CB", "", "SG", "", "", "", "", "", "", "", "", ""],
-    "GLU": ["N", "CA", "C", "O", "CB", "CG", "", "CD", "", "", "", "", "", "", "OE1", "OE2"],
-    "HIS": ["N", "CA", "C", "O", "CB", "CG", "", "", "CD2", "ND1", "", "", "CE1", "NE2", "", ""],
+    "GLU": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "",
+        "CD",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "OE1",
+        "OE2",
+    ],
+    "HIS": [
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "",
+        "",
+        "CD2",
+        "ND1",
+        "",
+        "",
+        "CE1",
+        "NE2",
+        "",
+        "",
+    ],
     "UNK": ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
 }
 
-#A compact atom encoding with 7 columns
+# A compact atom encoding with 7 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-atom7 = [[0, 1, 2, 3, 1, 4, 5], [0, 1, 2, 3, 5, 6, 7], [0, 1, 2, 3, 6, 7, 8], [0, 1, 2, 3, 6, 8, 9], [0, 0, 0, 0, 0, 0, 0]]
+atom7 = [
+    [0, 1, 2, 3, 1, 4, 5],
+    [0, 1, 2, 3, 5, 6, 7],
+    [0, 1, 2, 3, 6, 7, 8],
+    [0, 1, 2, 3, 6, 8, 9],
+    [0, 0, 0, 0, 0, 0, 0],
+]
 
-#A compact atom encoding with 8 columns
+# A compact atom encoding with 8 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-atom8 = [[0, 1, 2, 3, 4, 1, 4, 5], [0, 1, 2, 3, 4, 5, 6, 7], [0, 1, 2, 3, 4, 6, 7, 8], [0, 1, 2, 3, 4, 6, 8, 9], [0, 0, 0, 0, 0, 0, 0, 0]]
+atom8 = [
+    [0, 1, 2, 3, 4, 1, 4, 5],
+    [0, 1, 2, 3, 4, 5, 6, 7],
+    [0, 1, 2, 3, 4, 6, 7, 8],
+    [0, 1, 2, 3, 4, 6, 8, 9],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+]
+
 
 def _make_rigid_transformation_4x4(ex, ey, translation):
     """Create a rigid 4x4 transformation matrix from two axes and transl."""
@@ -402,15 +688,37 @@ def _make_rigid_transformation_4x4(ex, ey, translation):
 
     # compute ez as cross product
     eznorm = np.cross(ex_normalized, ey_normalized)
-    m = np.stack(
-        [ex_normalized, ey_normalized, eznorm, translation]
-    ).transpose()
+    m = np.stack([ex_normalized, ey_normalized, eznorm, translation]).transpose()
     m = np.concatenate([m, [[0.0, 0.0, 0.0, 1.0]]], axis=0)
     return m
 
 
-hbond_donor_atoms = ["OG", "OG1", "NE2", "ND1", "ND2", "NZ", "NE", "NH1", "NH2", "NE1", "OH", "N"]
-hbond_acceptor_atoms = ["ND1", "NE2", "OE1", "OE2", "OD1", "OD2", "OH", "OG", "OG1", "O"]
+hbond_donor_atoms = [
+    "OG",
+    "OG1",
+    "NE2",
+    "ND1",
+    "ND2",
+    "NZ",
+    "NE",
+    "NH1",
+    "NH2",
+    "NE1",
+    "OH",
+    "N",
+]
+hbond_acceptor_atoms = [
+    "ND1",
+    "NE2",
+    "OE1",
+    "OE2",
+    "OD1",
+    "OD2",
+    "OH",
+    "OG",
+    "OG1",
+    "O",
+]
 
 hbond_donors = np.zeros(atom_type_num)
 hbond_acceptors = np.zeros(atom_type_num)
@@ -418,26 +726,36 @@ for atom in hbond_donor_atoms:
     hbond_donors[atom_order[atom]] = 1.0
 for atom in hbond_acceptor_atoms:
     hbond_acceptors[atom_order[atom]] = 1.0
-    
+
+
 def _get_restype_atom14_hbond_donors_and_acceptors():
     restype_hbond_donors = []
     restype_hbond_acceptors = []
     for res_name in restypes:
         res_name = restype_1to3[res_name]
-        
-        res_hbond_donors = [1.0 if atom in hbond_donor_atoms else 0.0 for atom in restype_name_to_atom14_names[res_name]]
-        res_hbond_acceptors = [1.0 if atom in hbond_acceptor_atoms else 0.0 for atom in restype_name_to_atom14_names[res_name]]
-            
+
+        res_hbond_donors = [
+            1.0 if atom in hbond_donor_atoms else 0.0
+            for atom in restype_name_to_atom14_names[res_name]
+        ]
+        res_hbond_acceptors = [
+            1.0 if atom in hbond_acceptor_atoms else 0.0
+            for atom in restype_name_to_atom14_names[res_name]
+        ]
+
         restype_hbond_donors.append(res_hbond_donors)
         restype_hbond_acceptors.append(res_hbond_acceptors)
-        
+
     # Update for unknown restype
     restype_hbond_donors.append([0] * 14)
     restype_hbond_acceptors.append([0] * 14)
-    
+
     return restype_hbond_donors, restype_hbond_acceptors
 
-restype_hbond_donors_atom14, restype_hbond_acceptors_atom14 = _get_restype_atom14_hbond_donors_and_acceptors()
+
+restype_hbond_donors_atom14, restype_hbond_acceptors_atom14 = (
+    _get_restype_atom14_hbond_donors_and_acceptors()
+)
 
 # Format: The list for each AA type contains chi1, chi2, chi3, chi4 in
 # this order (or a relevant subset from chi1 onwards). ALA and GLY don't have
@@ -539,8 +857,8 @@ chi_pi_periodic = [
     [0.0, 0.0, 0.0, 0.0],  # UNK
 ]
 
-# The following chi angles are pseudo pi periodic: due to experimental limitations, 
-# atoms are sometimes ambiguous for HIS, ASN, GLN 
+# The following chi angles are pseudo pi periodic: due to experimental limitations,
+# atoms are sometimes ambiguous for HIS, ASN, GLN
 chi_pseudo_pi_periodic = [
     [0.0, 0.0, 0.0, 0.0],  # ALA
     [0.0, 0.0, 0.0, 0.0],  # ARG
@@ -577,32 +895,26 @@ restype_atom14_mask = np.zeros([21, 14], dtype=np.float32)
 restype_atom14_rigid_group_positions = np.zeros([21, 14, 3], dtype=np.float32)
 restype_rigid_group_default_frame = np.zeros([21, 8, 4, 4], dtype=np.float32)
 
+
 def _make_rigid_group_constants():
     """Fill the arrays above."""
     for restype, restype_letter in enumerate(restypes):
         resname = restype_1to3[restype_letter]
-        for atomname, group_idx, atom_position in rigid_group_atom_positions[
-            resname
-        ]:
+        for atomname, group_idx, atom_position in rigid_group_atom_positions[resname]:
             atomtype = atom_order[atomname]
             restype_atom37_to_rigid_group[restype, atomtype] = group_idx
             restype_atom37_mask[restype, atomtype] = 1
-            restype_atom37_rigid_group_positions[
-                restype, atomtype, :
-            ] = atom_position
+            restype_atom37_rigid_group_positions[restype, atomtype, :] = atom_position
 
             atom14idx = restype_name_to_atom14_names[resname].index(atomname)
             restype_atom14_to_rigid_group[restype, atom14idx] = group_idx
             restype_atom14_mask[restype, atom14idx] = 1
-            restype_atom14_rigid_group_positions[
-                restype, atom14idx, :
-            ] = atom_position
+            restype_atom14_rigid_group_positions[restype, atom14idx, :] = atom_position
 
     for restype, restype_letter in enumerate(restypes):
         resname = restype_1to3[restype_letter]
         atom_positions = {
-            name: np.array(pos)
-            for name, _, pos in rigid_group_atom_positions[resname]
+            name: np.array(pos) for name, _, pos in rigid_group_atom_positions[resname]
         }
 
         # backbone to backbone is the identity transform
@@ -630,9 +942,7 @@ def _make_rigid_group_constants():
         # chi1-frame to backbone
         if chi_angles_mask[restype][0]:
             base_atom_names = chi_angles_atoms[resname][0]
-            base_atom_positions = [
-                atom_positions[name] for name in base_atom_names
-            ]
+            base_atom_positions = [atom_positions[name] for name in base_atom_names]
             mat = _make_rigid_transformation_4x4(
                 ex=base_atom_positions[2] - base_atom_positions[1],
                 ey=base_atom_positions[0] - base_atom_positions[1],
@@ -654,32 +964,34 @@ def _make_rigid_group_constants():
                     ey=np.array([-1.0, 0.0, 0.0]),
                     translation=axis_end_atom_position,
                 )
-                restype_rigid_group_default_frame[
-                    restype, 4 + chi_idx, :, :
-                ] = mat
+                restype_rigid_group_default_frame[restype, 4 + chi_idx, :, :] = mat
 
 
 _make_rigid_group_constants()
 
 
-stereo_chemical_props_path = resources.files(__package__).joinpath('stereo_chemical_props.txt')
+stereo_chemical_props_path = resources.files(__package__).joinpath(
+    "stereo_chemical_props.txt"
+)
+
+
 def restype_bonded_atoms(self_bonds=False, atom14=True):
     stereo_chemical_props = stereo_chemical_props_path.read_text()
     lines_iter = iter(stereo_chemical_props.splitlines())
-    
+
     # Determine bonded residues
     if atom14:
         restype_bonded_atoms = np.zeros([21, 14, 14], dtype=np.float32)
     else:
         restype_bonded_atoms = np.zeros([21, 37, 37], dtype=np.float32)
-    
-    next(lines_iter) # Skip header line.
+
+    next(lines_iter)  # Skip header line.
     for line in lines_iter:
-        if line.strip() == '-':
+        if line.strip() == "-":
             break
         bond, resname, _, _ = line.split()
-        atom1, atom2 = bond.split('-')
-        
+        atom1, atom2 = bond.split("-")
+
         # Get residue and atom indices
         res_idx = restype_order[restype_3to1[resname]]
         if atom14:
@@ -688,11 +1000,11 @@ def restype_bonded_atoms(self_bonds=False, atom14=True):
         else:
             atom1_idx = atom_order[atom1]
             atom2_idx = atom_order[atom2]
-        
+
         # Symmetrically mark each bonded atom
         restype_bonded_atoms[res_idx, atom1_idx, atom2_idx] = 1.0
         restype_bonded_atoms[res_idx, atom2_idx, atom1_idx] = 1.0
-        
+
     if self_bonds:
         for restype in restypes:
             res_idx = restype_order[restype]
@@ -704,7 +1016,7 @@ def restype_bonded_atoms(self_bonds=False, atom14=True):
                 else:
                     atom_idx = atom_order[atom]
                 restype_bonded_atoms[res_idx, atom_idx, atom_idx] = 1.0
-        
+
     return restype_bonded_atoms
 
 
@@ -721,16 +1033,18 @@ def _get_chi_atom_indices_and_mask(use_atom14=True):
         # All unique atoms for chi angles
         atoms = [atom for chi in res_chi_angles for atom in chi]
         atoms = sorted(set(atoms), key=lambda x: atoms.index(x))
-        
+
         # Indices of unique atoms
         if use_atom14:
-            atom_indices = [restype_name_to_atom14_names[res_name].index(atom) for atom in atoms]
+            atom_indices = [
+                restype_name_to_atom14_names[res_name].index(atom) for atom in atoms
+            ]
         else:
             atom_indices = [atom_order[atom] for atom in atoms]
-            
+
         for _ in range(7 - len(atom_indices)):
             atom_indices.append(0)
-            
+
         chi_atom_indices.append(atom_indices)
 
     # Update for unknown restype
@@ -739,8 +1053,13 @@ def _get_chi_atom_indices_and_mask(use_atom14=True):
 
     return chi_atom_indices, chi_mask
 
-chi_atom_indices_atom14, chi_mask_atom14 = _get_chi_atom_indices_and_mask(use_atom14=True)
-chi_atom_indices_atom37, chi_mask_atom37 = _get_chi_atom_indices_and_mask(use_atom14=False)
+
+chi_atom_indices_atom14, chi_mask_atom14 = _get_chi_atom_indices_and_mask(
+    use_atom14=True
+)
+chi_atom_indices_atom37, chi_mask_atom37 = _get_chi_atom_indices_and_mask(
+    use_atom14=False
+)
 
 
 def _get_restype_atom_radius_atom14():
@@ -752,15 +1071,16 @@ def _get_restype_atom_radius_atom14():
             for name in restype_name_to_atom14_names[res_name]
             if name != ""
         ]
-        
+
         for _ in range(14 - len(atom_radius)):
             atom_radius.append(0)
-            
+
         restype_atom_radius.append(atom_radius)
-        
+
     # Update for unknown restype
     restype_atom_radius.append([0] * 14)
-    
+
     return restype_atom_radius
+
 
 restype_atom_radius_atom14 = _get_restype_atom_radius_atom14()

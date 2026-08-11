@@ -26,8 +26,7 @@ def _load_token_tables() -> Tuple[Dict[int, str], Dict[str, str], str]:
         except Exception as exc:  # pragma: no cover - diagnostic path
             errors.append(f"{mod_name}: {exc}")
     raise RuntimeError(
-        "Failed to import parser token tables. "
-        "Tried modules:\n" + "\n".join(errors)
+        "Failed to import parser token tables. " "Tried modules:\n" + "\n".join(errors)
     )
 
 
@@ -99,7 +98,9 @@ def _iter_chain_tokens(
     chain_tokens: Dict[int, List[int]] = {}
     seen_residues = set()
 
-    for rid, tok, cid, is_prot in zip(residue_index, residue_token, chain_id, is_protein):
+    for rid, tok, cid, is_prot in zip(
+        residue_index, residue_token, chain_id, is_protein
+    ):
         if not bool(is_prot):
             continue
         key = (int(cid), int(rid))

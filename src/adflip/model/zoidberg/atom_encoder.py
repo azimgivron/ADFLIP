@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 
-from adflip.data.all_atom_parse import num_residue_tokens, num_element_tokens
-from adflip.model.zoidberg.utils import FourierEmbedding
+from adflip.data.all_atom_parse import num_element_tokens, num_residue_tokens
 from adflip.model.zoidberg.transition_block import TransitionBlock
+from adflip.model.zoidberg.utils import FourierEmbedding
 
 
 class AtomEncoder(nn.Module):

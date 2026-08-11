@@ -1,32 +1,37 @@
 import os
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['OPENBLAS_NUM_THREADS'] = '4'
-os.environ['MKL_NUM_THREADS'] = '4'
-os.environ['OMP_NUM_THREADS'] = '4'
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+os.environ["OMP_NUM_THREADS"] = "4"
 
 
-import time, glob, shutil
+import glob
+import shutil
+import time
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from functools import partial
 from multiprocessing import Pool
-from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from pyrosetta import init, pose_from_pdb, get_fa_scorefxn, Pose, standard_packer_task
-from pyrosetta.toolbox.generate_resfile import generate_resfile_from_pose
+
+from pyrosetta import Pose, get_fa_scorefxn, init, pose_from_pdb, standard_packer_task
 from pyrosetta.rosetta.core.pack.task import parse_resfile
 from pyrosetta.rosetta.protocols.minimization_packing import PackRotamersMover
+from pyrosetta.toolbox.generate_resfile import generate_resfile_from_pose
 
 
 def packer_init():
-    init('-out:levels core.conformation.Conformation:error '
-        'core.pack.pack_missing_sidechains:error '
-        'core.pack.dunbrack.RotamerLibrary:error '
-        'core.scoring.etable:error '
-        '-ex1 -ex2 -ex3 -ex4 '
-        '-multi_cool_annealer 5 '
-        '-no_his_his_pairE '
-        '-linmem_ig 1 '
-        '-ignore_unrecognized_res 1 '
-        '-detect_disulf 0')
+    init(
+        "-out:levels core.conformation.Conformation:error "
+        "core.pack.pack_missing_sidechains:error "
+        "core.pack.dunbrack.RotamerLibrary:error "
+        "core.scoring.etable:error "
+        "-ex1 -ex2 -ex3 -ex4 "
+        "-multi_cool_annealer 5 "
+        "-no_his_his_pairE "
+        "-linmem_ig 1 "
+        "-ignore_unrecognized_res 1 "
+        "-detect_disulf 0"
+    )
 
 
 def packer_task(pdb_in, pdb_out, n_decoy=1, tmp_dir="./tmp"):
@@ -52,9 +57,9 @@ def packer_task(pdb_in, pdb_out, n_decoy=1, tmp_dir="./tmp"):
         packmover = PackRotamersMover(scorefxn, pose_packer)
 
         # Score, apply, and score
-        print('\nPre packing score:', scorefxn(test_pose))
+        print("\nPre packing score:", scorefxn(test_pose))
         packmover.apply(test_pose)
-        print('Post packing score:', scorefxn(test_pose))
+        print("Post packing score:", scorefxn(test_pose))
         score = scorefxn(test_pose)
 
         # Update best model
@@ -89,37 +94,54 @@ def main(args):
         pdb_out = os.path.join(args.out_dir, os.path.basename(pdb_in))
         if args.overwrite or os.path.basename(pdb_out) not in os.listdir(args.out_dir):
             work_list.append((pdb_in, pdb_out))
-    
+
     # Run benchmark
     with Pool(args.n_thread) as p:
         p.map(partial(safe_run, n_decoy=args.n_decoy, tmp_dir=tmp_dir), work_list)
-    
+
     # Clean up
     shutil.rmtree(tmp_dir)
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser(description="Rosetta Packer",
-                            epilog="Run Rosetta's Packer on the specified set of PDBs.",
-                            formatter_class=ArgumentDefaultsHelpFormatter)
-    parser.add_argument('pdb_dir',
-                        type=str,
-                        help='Directory containing pdb files to benchmark.')
-    parser.add_argument("--out_dir",
-                        default=None, type=str,
-                        help="Directory to store outputs. Default is <pdb_dir>_rosetta_packer.")
-    parser.add_argument("--n_thread", type=int, default=24,
-                        help="Number of CPU threads to use for packing.")
-    parser.add_argument("--n_decoy", type=int, default=1,
-                        help="Number of decoys for each target to run before selecting the decoy "
-                        "with the best energy.")
-    parser.add_argument("--overwrite",
-                        action="store_true", 
-                        help="Optionally overwrite previous results.")
+    parser = ArgumentParser(
+        description="Rosetta Packer",
+        epilog="Run Rosetta's Packer on the specified set of PDBs.",
+        formatter_class=ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "pdb_dir", type=str, help="Directory containing pdb files to benchmark."
+    )
+    parser.add_argument(
+        "--out_dir",
+        default=None,
+        type=str,
+        help="Directory to store outputs. Default is <pdb_dir>_rosetta_packer.",
+    )
+    parser.add_argument(
+        "--n_thread",
+        type=int,
+        default=24,
+        help="Number of CPU threads to use for packing.",
+    )
+    parser.add_argument(
+        "--n_decoy",
+        type=int,
+        default=1,
+        help="Number of decoys for each target to run before selecting the decoy "
+        "with the best energy.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Optionally overwrite previous results.",
+    )
     args = parser.parse_args()
 
     if args.out_dir is None:
-        args.pdb_dir = args.pdb_dir[:-1] if args.pdb_dir[-1] == os.path.sep else args.pdb_dir
+        args.pdb_dir = (
+            args.pdb_dir[:-1] if args.pdb_dir[-1] == os.path.sep else args.pdb_dir
+        )
         args.out_dir = args.pdb_dir + f"_rosetta_packer"
 
     main(args)

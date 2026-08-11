@@ -1,20 +1,21 @@
+import math
+
 import torch
 import torch.nn as nn
-import math
 from torch_geometric.nn.pool import knn_graph
 
 from adflip.model.zoidberg.atom_encoder import AtomEncoder
-from adflip.model.zoidberg.local_atom_fa_ipa import LocalAtomFAIPA
 from adflip.model.zoidberg.atom_to_node_embedder import AtomToNodeEmbedder
-from adflip.model.zoidberg.node_to_atom_embedder import NodeToAtomEmbedder
 from adflip.model.zoidberg.backbone_encoder import BackboneEncoder
 from adflip.model.zoidberg.context_encoder import ContextBlock
+from adflip.model.zoidberg.local_atom_fa_ipa import LocalAtomFAIPA
 from adflip.model.zoidberg.local_residue_GNN import EncLayer
+from adflip.model.zoidberg.node_to_atom_embedder import NodeToAtomEmbedder
 from adflip.model.zoidberg.transition_block import TransitionBlock
 from adflip.model.zoidberg.utils import (
+    FrameAveraging,
     gather_residue_average_from_atoms,
     transform_residue_index,
-    FrameAveraging,
 )
 
 
@@ -81,7 +82,7 @@ class Zoidberg_GNN(nn.Module):
         denoiser: bool = True,
         dropout: float = 0.1,
         update_atom: bool = False,
-        num_decoder_blocks: int = 0,#using transformer as decoder
+        num_decoder_blocks: int = 0,  # using transformer as decoder
         num_tfmr_heads: int = 0,
         num_tfmr_layers: int = 0,
         mpnn_cutoff: bool = False,
@@ -93,7 +94,7 @@ class Zoidberg_GNN(nn.Module):
         self.num_heads = num_heads
         self.k = k
         self.max_distance_ang = max_distance_ang
-        self.number_ligand_atom = number_ligand_atom 
+        self.number_ligand_atom = number_ligand_atom
         self.output_to_esm = output_to_esm
         self.denoiser = denoiser
         self.augment_eps = augment_eps
@@ -113,18 +114,19 @@ class Zoidberg_GNN(nn.Module):
             top_k=k,
             augment_eps=augment_eps,
             backbone_diheral=backbone_diheral,
-            number_ligand_atom = number_ligand_atom,
-            mpnn_cutoff = self.mpnn_cutoff
+            number_ligand_atom=number_ligand_atom,
+            mpnn_cutoff=self.mpnn_cutoff,
         )
         self.frame_averaging = FrameAveraging()
-
 
         if self.number_ligand_atom > 0:
             self.W_v = torch.nn.Linear(hidden_dim, hidden_dim, bias=True)
             self.V_C = torch.nn.Linear(hidden_dim, hidden_dim, bias=False)
             self.V_C_norm = torch.nn.LayerNorm(hidden_dim)
             self.dropout = nn.Dropout(dropout)
-            self.context_block = nn.ModuleList([ContextBlock(hidden_dim, dropout=dropout) for _ in range(2)])
+            self.context_block = nn.ModuleList(
+                [ContextBlock(hidden_dim, dropout=dropout) for _ in range(2)]
+            )
 
         for i in range(num_blocks):
             self.layers[f"local_atom_attention_{i}"] = LocalAtomFAIPA(
@@ -146,25 +148,26 @@ class Zoidberg_GNN(nn.Module):
             self.decoder_block = nn.ModuleDict()
             for i in range(self.num_decoder_blocks):
                 self.decoder_block[f"decoder_block_{i}"] = nn.TransformerEncoder(
-                nn.TransformerEncoderLayer(
-                    d_model=hidden_dim,
-                    nhead=self.num_tfmr_heads,
-                    dim_feedforward=num_tfmr_heads * 64,
-                    dropout=dropout,
-                    activation="gelu",
-                    batch_first=True,
-                ),
-                num_layers=self.num_tfmr_layers,
-            )
-
-
+                    nn.TransformerEncoderLayer(
+                        d_model=hidden_dim,
+                        nhead=self.num_tfmr_heads,
+                        dim_feedforward=num_tfmr_heads * 64,
+                        dropout=dropout,
+                        activation="gelu",
+                        batch_first=True,
+                    ),
+                    num_layers=self.num_tfmr_layers,
+                )
 
         self.layers["output"] = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, batch_dict: dict, timestep: torch.Tensor):
 
         if self.augment_eps > 0.0 and self.training:
-            batch_dict["position"] = batch_dict["position"] + torch.randn_like(batch_dict["position"]) * self.augment_eps
+            batch_dict["position"] = (
+                batch_dict["position"]
+                + torch.randn_like(batch_dict["position"]) * self.augment_eps
+            )
 
         B, N, _ = batch_dict["position"].shape
         positions = batch_dict["position"].reshape(B * N, -1)
@@ -185,7 +188,16 @@ class Zoidberg_GNN(nn.Module):
         unique_residue_index = transform_residue_index(
             batch_dict["residue_index"], batch_dict["not_pad_mask"] & center_mask
         )
-        residue_x, E, E_idx, residue_x_pad_mask,residue_context_embedding,Y_nodes, Y_edges, Y_m  = self.backbone_feature(batch_dict)
+        (
+            residue_x,
+            E,
+            E_idx,
+            residue_x_pad_mask,
+            residue_context_embedding,
+            Y_nodes,
+            Y_edges,
+            Y_m,
+        ) = self.backbone_feature(batch_dict)
         frame_pos = self.frame_averaging.create_frame(
             batch_dict["position"], batch_dict["not_pad_mask"]
         )[0]
@@ -213,8 +225,8 @@ class Zoidberg_GNN(nn.Module):
                     f"Residue shape {residue_x.shape} != {residue_x_from_atom.shape}"
                 )
             residue_x, E = self.layers[f"gnn_block_{i}"](
-                residue_x,#h_V
-                residue_x_from_atom,#h_V_atom
+                residue_x,  # h_V
+                residue_x_from_atom,  # h_V_atom
                 E,
                 E_idx,
                 residue_x_pad_mask,
@@ -231,13 +243,21 @@ class Zoidberg_GNN(nn.Module):
                 atom_x = self.layers[f"transition_block_{i}"](atom_x)
 
         # Context layer
-        
-        if self.number_ligand_atom > 0 and batch_dict['residue_token'][~batch_dict['is_protein']].shape[0] > 0: #check has non-protein element
+
+        if (
+            self.number_ligand_atom > 0
+            and batch_dict["residue_token"][~batch_dict["is_protein"]].shape[0] > 0
+        ):  # check has non-protein element
             h_E_context = self.W_v(residue_context_embedding)
-            residue_x_context = residue_x   
+            residue_x_context = residue_x
             for i in range(len(self.context_block)):
-                Y_nodes,residue_x_context = self.context_block[i](
-                    Y_nodes, Y_edges, Y_m,  residue_x_context, h_E_context,residue_x_pad_mask
+                Y_nodes, residue_x_context = self.context_block[i](
+                    Y_nodes,
+                    Y_edges,
+                    Y_m,
+                    residue_x_context,
+                    h_E_context,
+                    residue_x_pad_mask,
                 )
             residue_x_context = self.V_C(residue_x_context)
             residue_x = residue_x + self.V_C_norm(self.dropout(residue_x_context))
@@ -283,13 +303,8 @@ class Zoidberg_GNN(nn.Module):
         #         )
         #         atom_x = self.layers[f"transition_block_{i}"](atom_x)
 
-        
-        
-        
-        
-        
-        #decoder layer
-        if self.num_decoder_blocks > 0:#decoder layer
+        # decoder layer
+        if self.num_decoder_blocks > 0:  # decoder layer
             for i in range(self.num_decoder_blocks):
                 residue_x = self.decoder_block[f"decoder_block_{i}"](
                     residue_x, src_key_padding_mask=~residue_x_pad_mask
@@ -312,6 +327,7 @@ class Zoidberg_GNN(nn.Module):
 
 if __name__ == "__main__":
     import torch
+
     from adflip.data.all_atom_parse import get_example_batch
 
     batch_dict = get_example_batch().__dict__

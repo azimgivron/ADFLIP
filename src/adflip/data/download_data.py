@@ -36,7 +36,9 @@ def _normalize_ids(data):
     raise ValueError("Unsupported JSON format: expected list of PDB IDs")
 
 
-def _download_one(pdb_id, out_dir, base_url, overwrite, retries, timeout, subdir_prefix):
+def _download_one(
+    pdb_id, out_dir, base_url, overwrite, retries, timeout, subdir_prefix
+):
     pdb_id = str(pdb_id).strip()
     if not pdb_id:
         return (pdb_id, "skip-empty")
@@ -80,15 +82,31 @@ def _download_one(pdb_id, out_dir, base_url, overwrite, retries, timeout, subdir
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Download PDB mmCIF files from a JSON list.")
-    parser.add_argument("--json", required=True, help="Path to JSON file containing PDB IDs (list).")
-    parser.add_argument("--out_dir", required=True, help="Output directory for .cif.gz files.")
-    parser.add_argument("--base_url", default=DEFAULT_BASE_URL, help="Download URL template.")
-    parser.add_argument("--workers", type=int, default=8, help="Number of download workers.")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing files.")
+    parser = argparse.ArgumentParser(
+        description="Download PDB mmCIF files from a JSON list."
+    )
+    parser.add_argument(
+        "--json", required=True, help="Path to JSON file containing PDB IDs (list)."
+    )
+    parser.add_argument(
+        "--out_dir", required=True, help="Output directory for .cif.gz files."
+    )
+    parser.add_argument(
+        "--base_url", default=DEFAULT_BASE_URL, help="Download URL template."
+    )
+    parser.add_argument(
+        "--workers", type=int, default=8, help="Number of download workers."
+    )
+    parser.add_argument(
+        "--overwrite", action="store_true", help="Overwrite existing files."
+    )
     parser.add_argument("--retries", type=int, default=3, help="Retry count per file.")
-    parser.add_argument("--timeout", type=int, default=30, help="Timeout in seconds per request.")
-    parser.add_argument("--subdir_prefix", action="store_true", help="Store files in subdir by ID[1:3].")
+    parser.add_argument(
+        "--timeout", type=int, default=30, help="Timeout in seconds per request."
+    )
+    parser.add_argument(
+        "--subdir_prefix", action="store_true", help="Store files in subdir by ID[1:3]."
+    )
 
     args = parser.parse_args()
 
@@ -119,7 +137,9 @@ def main():
             for pdb_id in pdb_ids
         ]
 
-        for fut in tqdm(concurrent.futures.as_completed(futures), total=total, desc="download"):
+        for fut in tqdm(
+            concurrent.futures.as_completed(futures), total=total, desc="download"
+        ):
             pdb_id, status = fut.result()
             if status == "ok":
                 ok += 1

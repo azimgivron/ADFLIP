@@ -1,18 +1,17 @@
 from __future__ import print_function
 
 import itertools
+import math
 import sys
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
-import math
+import torch.nn.functional as F
 
 
 def modulate(x, shift, scale):
     return x * (1 + scale) + shift
-
 
 
 class PositionWiseFeedForward(torch.nn.Module):
@@ -85,7 +84,6 @@ class DecLayer(torch.nn.Module):
         return h_V
 
 
-
 class DecLayerJ(torch.nn.Module):
     def __init__(self, num_hidden, num_in, dropout=0.1, num_heads=None, scale=30):
         super(DecLayerJ, self).__init__()
@@ -136,18 +134,16 @@ class ContextBlock(torch.nn.Module):
         dropout=0.1,
     ):
         super(ContextBlock, self).__init__()
-        self.y_context_encoder_layers = DecLayerJ(hidden_dim, hidden_dim, dropout=dropout)
-        self.context_encoder_layers = DecLayer(hidden_dim, hidden_dim * 2, dropout=dropout)
+        self.y_context_encoder_layers = DecLayerJ(
+            hidden_dim, hidden_dim, dropout=dropout
+        )
+        self.context_encoder_layers = DecLayer(
+            hidden_dim, hidden_dim * 2, dropout=dropout
+        )
 
-    def forward(
-        self,  Y_nodes, Y_edges, Y_m, h_V_C, h_E_context, mask
-    ):
+    def forward(self, Y_nodes, Y_edges, Y_m, h_V_C, h_E_context, mask):
         Y_m_edges = Y_m[:, :, :, None] * Y_m[:, :, None, :]
-        Y_nodes = self.y_context_encoder_layers(
-            Y_nodes, Y_edges, Y_m, Y_m_edges
-        )
+        Y_nodes = self.y_context_encoder_layers(Y_nodes, Y_edges, Y_m, Y_m_edges)
         h_E_context_cat = torch.cat([h_E_context, Y_nodes], -1)
-        h_V_C = self.context_encoder_layers(
-            h_V_C, h_E_context_cat, mask, Y_m
-        )
-        return Y_nodes,h_V_C
+        h_V_C = self.context_encoder_layers(h_V_C, h_E_context_cat, mask, Y_m)
+        return Y_nodes, h_V_C

@@ -1,15 +1,15 @@
-from typing import List
+import dataclasses
+import gzip
+import os
+from collections import OrderedDict
 from importlib import resources
+from typing import List
+
+import numpy as np
 import prody
 import torch
-import numpy as np
-import dataclasses
-import os
-import gzip
-
-from collections import OrderedDict
 from Bio.Data import IUPACData
-from Bio.PDB import MMCIFParser, PDBParser, PDBIO, Select
+from Bio.PDB import PDBIO, MMCIFParser, PDBParser, Select
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from scipy.spatial import cKDTree
 
@@ -77,7 +77,8 @@ num_residue_tokens = len(residue_tokens)
 
 
 # Residue type sets — imported from centralized config
-from adflip.data.residue_config import get_protein_residues, NUCLEOTIDE, ION
+from adflip.data.residue_config import ION, NUCLEOTIDE, get_protein_residues
+
 nucleotide_residues = NUCLEOTIDE
 ion_residues = ION
 
@@ -232,17 +233,16 @@ def extend_struct_data_dict(
     if len(extension_data_dict["position"]) == 0:
         return False
     if not (
-        extension_data_dict["is_protein"][-1] or
-        extension_data_dict["is_nucleotide"][-1] or
-        extension_data_dict["is_ion"][-1]
-    ): #for ligand
+        extension_data_dict["is_protein"][-1]
+        or extension_data_dict["is_nucleotide"][-1]
+        or extension_data_dict["is_ion"][-1]
+    ):  # for ligand
         positions = np.array(extension_data_dict["position"])
         center_idx = np.argmin(
             np.linalg.norm(
-                positions - np.mean(positions, axis=0, keepdims=True),
-                axis=-1
+                positions - np.mean(positions, axis=0, keepdims=True), axis=-1
             ),
-            axis=0
+            axis=0,
         )
         if ligand_center:
             extension_data_dict["is_center"] = [
@@ -278,8 +278,6 @@ def extend_struct_data_dict(
     return False
 
 
-
-
 def _normalize_chain_id(chainid: str):
     chainid = str(chainid).strip()
     if not chainid or chainid in (".", "?"):
@@ -309,16 +307,19 @@ def _parse_mmcif_assemblies(path_or_name: str):
             return [val]
         return list(val)
 
-    asmb_ids = _to_list(cif.get('_pdbx_struct_assembly_gen.assembly_id'))
+    asmb_ids = _to_list(cif.get("_pdbx_struct_assembly_gen.assembly_id"))
     if not asmb_ids:
         return None
 
-    asmb_chains = _to_list(cif.get('_pdbx_struct_assembly_gen.asym_id_list'), len(asmb_ids))
+    asmb_chains = _to_list(
+        cif.get("_pdbx_struct_assembly_gen.asym_id_list"), len(asmb_ids)
+    )
 
     return {
-        'asmb_ids': asmb_ids,
-        'asmb_chains': asmb_chains,
+        "asmb_ids": asmb_ids,
+        "asmb_chains": asmb_chains,
     }
+
 
 def parse_structure(path_or_name: str):
     if ".pdb" in path_or_name:
@@ -331,7 +332,9 @@ def parse_structure(path_or_name: str):
     return parser.get_structure("structure", path_or_name)
 
 
-def _normalize_duplicate_residue_altlocs(mmcif_dict, auth_chains=True, auth_residues=True):
+def _normalize_duplicate_residue_altlocs(
+    mmcif_dict, auth_chains=True, auth_residues=True
+):
     # Biopython rejects point-mutated residues if one residue alternative has
     # blank atom altlocs. Normalize those blanks before StructureBuilder runs.
     alt_ids = mmcif_dict.get("_atom_site.label_alt_id")
@@ -399,6 +402,7 @@ class AllAltlocMMCIFParser(MMCIFParser):
 
 class _NonWaterHydrogenSelect(Select):
     """PDBIO selector that skips water and hydrogen, consistent with parse_mmcif_to_structure_data."""
+
     _water = {"HOH", "WAT", "DOD"}
 
     def accept_residue(self, residue):
@@ -425,9 +429,11 @@ def cif_to_pdb(cif_path, pdb_path):
     structure = parse_structure(cif_path)
 
     # Single-char chain IDs: A-Z, 0-9, a-z (total 62)
-    pdb_chain_chars = [chr(i) for i in range(ord('A'), ord('Z')+1)] + \
-                      [chr(i) for i in range(ord('0'), ord('9')+1)] + \
-                      [chr(i) for i in range(ord('a'), ord('z')+1)]
+    pdb_chain_chars = (
+        [chr(i) for i in range(ord("A"), ord("Z") + 1)]
+        + [chr(i) for i in range(ord("0"), ord("9") + 1)]
+        + [chr(i) for i in range(ord("a"), ord("z") + 1)]
+    )
 
     model = next(structure.get_models())
     chains = list(model.get_chains())
@@ -441,8 +447,7 @@ def cif_to_pdb(cif_path, pdb_path):
     non_water_chains = []
     for chain in chains:
         has_non_water = any(
-            r.get_resname().strip() not in water_resnames
-            for r in chain.get_residues()
+            r.get_resname().strip() not in water_resnames for r in chain.get_residues()
         )
         if has_non_water:
             non_water_chains.append(chain)
@@ -468,13 +473,15 @@ def cif_to_pdb(cif_path, pdb_path):
     io.save(pdb_path, _NonWaterHydrogenSelect())
 
 
-def parse_mmcif_to_structure_data(path_or_name,parser_chain_id = None,ion_center = False,ligand_center=False) -> StructureData:
+def parse_mmcif_to_structure_data(
+    path_or_name, parser_chain_id=None, ion_center=False, ligand_center=False
+) -> StructureData:
     """
     Parse a mmCIF file and return a StructureData object.
     """
     protein_residues = get_protein_residues()
 
-   # ------------ load & pre-filter atoms ------------
+    # ------------ load & pre-filter atoms ------------
     structure = parse_structure(path_or_name)
     model = next(structure.get_models())
 
@@ -579,8 +586,8 @@ def parse_mmcif_to_structure_data(path_or_name,parser_chain_id = None,ion_center
 
     struct_data["residue_index"] -= struct_data["residue_index"].min()
 
-    if struct_data['mask_chain'].shape[0] == 0:
-        del struct_data['mask_chain']
+    if struct_data["mask_chain"].shape[0] == 0:
+        del struct_data["mask_chain"]
 
     data = StructureData(**struct_data)
 
@@ -689,10 +696,10 @@ pad_constants = {
     "backbone_mask": False,
     "not_pad_mask": False,
     "is_mask": False,
-    'interact_non_protein_res': False,
-    'interact_ion_res': False,
-    'interact_nucleotide_res': False,
-    'interact_molecule_res': False,
+    "interact_non_protein_res": False,
+    "interact_ion_res": False,
+    "interact_nucleotide_res": False,
+    "interact_molecule_res": False,
     "noisy_residue_token": token_to_index["<PAD>"],
     "time_step": -1,
 }
@@ -718,7 +725,7 @@ def pad_structure_data(struct_data: StructureData, pad_length: int):
             pad_data[key] = np.concatenate(
                 [struct_data.__dict__[key], pad_values], axis=0
             )
-    if 'mask_chain' in struct_data.__dict__.keys():
+    if "mask_chain" in struct_data.__dict__.keys():
         pad_mask_chain = np.pad(
             struct_data.__dict__["mask_chain"],
             (0, pad_length - len(struct_data)),
@@ -728,6 +735,7 @@ def pad_structure_data(struct_data: StructureData, pad_length: int):
     data = StructureData(**pad_data)
     data.mask_chain = pad_mask_chain
     return data
+
 
 def from_numpy(x_array: np.array) -> torch.Tensor:
     if x_array.dtype == np.float64:
@@ -776,10 +784,8 @@ def batch_structure_data_list(
                 ]
             )
         batch_data["mask_chain"] = stack_fn(
-            [
-                convert_fn(struct_data.mask_chain)
-                for struct_data in new_struct_data_list
-            ])
+            [convert_fn(struct_data.mask_chain) for struct_data in new_struct_data_list]
+        )
 
         batch_data["batch_index"] = stack_fn(
             [full_fn((pad_length,), i) for i in range(len(new_struct_data_list))]
@@ -798,6 +804,7 @@ def dump_structure_data(struct_data: StructureData, path: str):
     """
     Dump a structure data to a file.
     """
+
     def _to_saveable(value):
         if isinstance(value, dict):
             return np.array([value], dtype=object)
@@ -848,21 +855,27 @@ def load_structure_data(path: str) -> StructureData:
     return data
 
 
-def parse_or_load_mmcif(path_or_name,parser_chain_id = None,ion_center = False,ligand_center = False) -> StructureData:
+def parse_or_load_mmcif(
+    path_or_name, parser_chain_id=None, ion_center=False, ligand_center=False
+) -> StructureData:
     if os.path.splitext(path_or_name)[1] == ".npz":
         return load_structure_data(path_or_name)
     else:
-        return parse_mmcif_to_structure_data(path_or_name,parser_chain_id,ion_center = ion_center,ligand_center=ligand_center)
+        return parse_mmcif_to_structure_data(
+            path_or_name,
+            parser_chain_id,
+            ion_center=ion_center,
+            ligand_center=ligand_center,
+        )
 
 
 def get_example_batch():
     struct_data1 = parse_mmcif_to_structure_data("5a00")
     struct_data2 = parse_mmcif_to_structure_data("7npm")
     struct_data3 = parse_mmcif_to_structure_data("dataset/test_nucleotide/1bc7.pdb")
-    struct_data_list = [struct_data1, struct_data2,struct_data3]
+    struct_data_list = [struct_data1, struct_data2, struct_data3]
     batch_data = batch_structure_data_list(struct_data_list)
     return batch_data
-
 
 
 def propagate_mask_vectorized(mask, index):
@@ -877,33 +890,42 @@ def propagate_mask_vectorized(mask, index):
     any_true = torch.zeros_like(unique_indices, dtype=torch.bool)
 
     # Use scatter_reduce to check if any mask is True for each unique index
-    any_true.scatter_reduce_(0, inverse_indices, mask, reduce='amax')
+    any_true.scatter_reduce_(0, inverse_indices, mask, reduce="amax")
 
     # Expand the any_true tensor to match the original shape
     return any_true[inverse_indices]
 
 
 def interact_residue(data):
-    protein_pos = np.expand_dims(data.position[data.is_protein],axis=1)
-    non_protein_pos = np.expand_dims(data.position[~data.is_protein],axis=0)
-    ion_pos = np.expand_dims(data.position[data.is_ion],axis=0)
-    nucleotide_pos = np.expand_dims(data.position[data.is_nucleotide],axis=0)
-    molecule_pos = np.expand_dims(data.position[~data.is_protein&~data.is_ion&~data.is_nucleotide],axis=0)
+    protein_pos = np.expand_dims(data.position[data.is_protein], axis=1)
+    non_protein_pos = np.expand_dims(data.position[~data.is_protein], axis=0)
+    ion_pos = np.expand_dims(data.position[data.is_ion], axis=0)
+    nucleotide_pos = np.expand_dims(data.position[data.is_nucleotide], axis=0)
+    molecule_pos = np.expand_dims(
+        data.position[~data.is_protein & ~data.is_ion & ~data.is_nucleotide], axis=0
+    )
 
-    dist_non_protein = np.sqrt((np.sum((protein_pos-non_protein_pos)**2,axis=-1)))
-    interact_non_protein = np.any(dist_non_protein<5,axis=1)
-    dist_ion = np.sqrt((np.sum((protein_pos-ion_pos)**2,axis=-1)))
-    interact_ion = np.any(dist_ion<5,axis=1)
-    dist_nucleotide = np.sqrt((np.sum((protein_pos-nucleotide_pos)**2,axis=-1)))
-    interact_nucleotide = np.any(dist_nucleotide<5,axis=1)
-    dist_molecule = np.sqrt((np.sum((protein_pos-molecule_pos)**2,axis=-1)))
-    interact_molecule = np.any(dist_molecule<5,axis=1)
+    dist_non_protein = np.sqrt((np.sum((protein_pos - non_protein_pos) ** 2, axis=-1)))
+    interact_non_protein = np.any(dist_non_protein < 5, axis=1)
+    dist_ion = np.sqrt((np.sum((protein_pos - ion_pos) ** 2, axis=-1)))
+    interact_ion = np.any(dist_ion < 5, axis=1)
+    dist_nucleotide = np.sqrt((np.sum((protein_pos - nucleotide_pos) ** 2, axis=-1)))
+    interact_nucleotide = np.any(dist_nucleotide < 5, axis=1)
+    dist_molecule = np.sqrt((np.sum((protein_pos - molecule_pos) ** 2, axis=-1)))
+    interact_molecule = np.any(dist_molecule < 5, axis=1)
 
-    interact_non_protein_res = propagate_mask_vectorized(interact_non_protein,data.residue_index[data.is_protein])
-    interact_ion_res = propagate_mask_vectorized(interact_ion,data.residue_index[data.is_protein])
-    interact_nucleotide_res = propagate_mask_vectorized(interact_nucleotide,data.residue_index[data.is_protein])
-    interact_molecule_res = propagate_mask_vectorized(interact_molecule,data.residue_index[data.is_protein])
-
+    interact_non_protein_res = propagate_mask_vectorized(
+        interact_non_protein, data.residue_index[data.is_protein]
+    )
+    interact_ion_res = propagate_mask_vectorized(
+        interact_ion, data.residue_index[data.is_protein]
+    )
+    interact_nucleotide_res = propagate_mask_vectorized(
+        interact_nucleotide, data.residue_index[data.is_protein]
+    )
+    interact_molecule_res = propagate_mask_vectorized(
+        interact_molecule, data.residue_index[data.is_protein]
+    )
 
     data.interact_non_protein_res = interact_non_protein_res.numpy()
     data.interact_ion_res = interact_ion_res.numpy()
@@ -912,8 +934,11 @@ def interact_residue(data):
 
     return data
 
-def pdb2data(pdb_file,device = 'cpu',ligand_center=False,ion_center=False):
-    data = parse_mmcif_to_structure_data(pdb_file,ligand_center=ligand_center,ion_center=ion_center)
+
+def pdb2data(pdb_file, device="cpu", ligand_center=False, ion_center=False):
+    data = parse_mmcif_to_structure_data(
+        pdb_file, ligand_center=ligand_center, ion_center=ion_center
+    )
     data = interact_residue(data)
     result = {}
     for k, v in data.__dict__.items():
@@ -922,28 +947,29 @@ def pdb2data(pdb_file,device = 'cpu',ligand_center=False,ion_center=False):
         elif isinstance(v, (int, float)):
             result[k] = torch.Tensor([v])
         # skip non-tensor fields (assembly info lists/dicts)
-    result['batch_index'] = torch.zeros_like(result['residue_index'])
+    result["batch_index"] = torch.zeros_like(result["residue_index"])
     result = {
-        k: v.float() if isinstance(v, torch.Tensor) and v.dtype == torch.float64 else v for k, v in result.items()
+        k: v.float() if isinstance(v, torch.Tensor) and v.dtype == torch.float64 else v
+        for k, v in result.items()
     }
     return result
 
 
-
 def _switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path):
-    '''
+    """
     new_pdb_path is the sidechain packing pdb
     original_pdb_path is the original pdb
-    '''
+    """
     structure = prody.parsePDB(new_pdb_path)
     protein_atom = structure.select("protein")
 
     structure2 = prody.parsePDB(original_pdb_path)
     ligand_atom = structure2.select("not protein and not water and not hydrogen")
 
-    merged =  protein_atom.toAtomGroup() + ligand_atom.toAtomGroup()
+    merged = protein_atom.toAtomGroup() + ligand_atom.toAtomGroup()
 
-    prody.proteins.pdbfile.writePDB(new_pdb_path,merged)
+    prody.proteins.pdbfile.writePDB(new_pdb_path, merged)
+
 
 def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None):
     new_lines = []
@@ -951,20 +977,25 @@ def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None
     ligand_lines = []
 
     # Read the original PDB to extract ligand information
-    with open(original_pdb_path, 'r') as f:
+    with open(original_pdb_path, "r") as f:
         for line in f:
-            if line.startswith('HETATM'):
+            if line.startswith("HETATM"):
                 ligand_lines.append(line)
 
     # Process the new PDB file
     current_residue = None
     current_chain = None
     confidence_index = -1
-    with open(new_pdb_path, 'r') as f:
+    with open(new_pdb_path, "r") as f:
         lines = f.readlines()
         for line in lines:
-            if line.startswith('ATOM'):
-                residue_number = int(line[22:26].strip().rstrip('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ') or '0')
+            if line.startswith("ATOM"):
+                residue_number = int(
+                    line[22:26]
+                    .strip()
+                    .rstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                    or "0"
+                )
                 chain_id = line[21]
                 if residue_number != current_residue or chain_id != current_chain:
                     current_residue = residue_number
@@ -977,12 +1008,20 @@ def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None
                     atom_index = int(line[6:11])
                     temp_line = line[:6] + f"{atom_index + 1:5}" + line[11:]
                     if confidence is not None:
-                        temp_line = temp_line[:60] + f"{confidence[confidence_index]:6.2f}" + temp_line[66:]
+                        temp_line = (
+                            temp_line[:60]
+                            + f"{confidence[confidence_index]:6.2f}"
+                            + temp_line[66:]
+                        )
                 elif atom_name == "O":
                     atom_index = int(line[6:11])
                     new_line = line[:6] + f"{atom_index - 1:5}" + line[11:]
                     if confidence is not None:
-                        new_line = new_line[:60] + f"{confidence[confidence_index]:6.2f}" + new_line[66:]
+                        new_line = (
+                            new_line[:60]
+                            + f"{confidence[confidence_index]:6.2f}"
+                            + new_line[66:]
+                        )
                     new_lines.append(new_line)
                     if temp_line is not None:
                         new_lines.append(temp_line)
@@ -990,11 +1029,15 @@ def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None
                 else:
                     new_line = line
                     if confidence is not None:
-                        new_line = new_line[:60] + f"{confidence[confidence_index]:6.2f}" + new_line[66:]
+                        new_line = (
+                            new_line[:60]
+                            + f"{confidence[confidence_index]:6.2f}"
+                            + new_line[66:]
+                        )
                     new_lines.append(new_line)
-            elif line.startswith('TER'):
+            elif line.startswith("TER"):
                 new_lines.append(line)
-            elif line.startswith('END'):
+            elif line.startswith("END"):
                 new_lines.append(line)
                 new_lines.extend(ligand_lines)
                 break
@@ -1002,7 +1045,7 @@ def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None
                 new_lines.append(line)
 
     # Write the new PDB file
-    with open(new_pdb_path, 'w') as f:
+    with open(new_pdb_path, "w") as f:
         f.writelines(new_lines)
 
 
@@ -1035,8 +1078,7 @@ def make_merged_pdb(original_pdb_path: str, sc_packing_pdb_path: str):
         internal_residue_num += 1
 
     new_atom_group = sum(
-        [residue for residue in new_residues[1:]],
-        start=new_residues[0]
+        [residue for residue in new_residues[1:]], start=new_residues[0]
     )
     new_atom_group.setTitle(og_pdb.getTitle())
     prody.proteins.writePDB(sc_packing_pdb_path, new_atom_group)
@@ -1045,12 +1087,13 @@ def make_merged_pdb(original_pdb_path: str, sc_packing_pdb_path: str):
 if __name__ == "__main__":
     np.random.seed(0)
     import glob
-    all_valid_file = glob.glob('/ssd/dataset/pdb/train/*.cif.gz')
+
+    all_valid_file = glob.glob("/ssd/dataset/pdb/train/*.cif.gz")
     # struct_data = parse_mmcif_to_structure_data("/ssd/dataset/pdb/valid/1djy.cif.gz")
     for file in all_valid_file:
         struct_data = parse_mmcif_to_structure_data(file)
         # print(struct_data)
-        if len(struct_data.__dict__['asmb_ids'])> 1:
+        if len(struct_data.__dict__["asmb_ids"]) > 1:
             print(struct_data)
 
     # Let's test masking

@@ -1,12 +1,12 @@
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-
-from adflip.data.all_atom_parse import num_residue_tokens
-from adflip.model.zoidberg.utils import FourierEmbedding
-from adflip.model.zoidberg.transition_block import TransitionBlock
 from torch.nn import functional as F
 from torch_geometric.utils import to_dense_batch
+
+from adflip.data.all_atom_parse import num_residue_tokens
+from adflip.model.zoidberg.transition_block import TransitionBlock
+from adflip.model.zoidberg.utils import FourierEmbedding
 
 
 def gather_edges(edges, neighbor_idx):
@@ -30,7 +30,6 @@ class PositionalEncodings(torch.nn.Module):
         d_onehot = torch.nn.functional.one_hot(d, 2 * self.max_relative_feature + 1 + 1)
         E = self.linear(d_onehot.float())
         return E
-
 
 
 class DihedralFeatures(nn.Module):
@@ -82,6 +81,7 @@ class DihedralFeatures(nn.Module):
         # Lift angle representations to the circle
         D_features = torch.cat((torch.cos(D), torch.sin(D)), 2)
         return D_features
+
 
 class ProteinFeatures(torch.nn.Module):
     def __init__(
@@ -153,7 +153,7 @@ class ProteinFeatures(torch.nn.Module):
         chain_labels = input_features["chain_labels"]
         if self.secondary_structure:
             ss = input_features["SS"]
-            
+
         # if self.augment_eps > 0 and self.training:
         #     X = X + self.augment_eps * torch.randn_like(X)
 
@@ -218,11 +218,7 @@ class ProteinFeatures(torch.nn.Module):
         else:
             h_ss = None
 
-
-        return hV, E, E_idx, None,None,None
-
-
-
+        return hV, E, E_idx, None, None, None
 
 
 class ProteinFeaturesLigand(torch.nn.Module):
@@ -237,7 +233,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
         device=None,
         atom_context_num=16,
         use_side_chains=False,
-        mpnn_cutoff=False
+        mpnn_cutoff=False,
     ):
         """Extract protein features"""
         super(ProteinFeaturesLigand, self).__init__()
@@ -739,7 +735,6 @@ class ProteinFeaturesLigand(torch.nn.Module):
         return RBF_A_B
 
     def forward(self, input_features):
-        
 
         X = input_features["X"]
         mask = input_features["mask"]
@@ -850,13 +845,23 @@ class ProteinFeaturesLigand(torch.nn.Module):
             Y_m = input_features["Y_m"]
             Y_t = input_features["Y_t"]
             Y_t = Y_t.long()
-            
-            Y_t_g = self.periodic_table_features[1][Y_t.cpu()]  # group; 19 categories including 0
-            Y_t_p = self.periodic_table_features[2][Y_t.cpu()]  # period; 8 categories including 0
 
-            Y_t_g_1hot_ = torch.nn.functional.one_hot(Y_t_g, 19).to(device)  # [B, L, M, 19]
-            Y_t_p_1hot_ = torch.nn.functional.one_hot(Y_t_p, 8).to(device)  # [B, L, M, 8]
-            Y_t_1hot_ = torch.nn.functional.one_hot(Y_t, 120).to(device)  # [B, L, M, 120]
+            Y_t_g = self.periodic_table_features[1][
+                Y_t.cpu()
+            ]  # group; 19 categories including 0
+            Y_t_p = self.periodic_table_features[2][
+                Y_t.cpu()
+            ]  # period; 8 categories including 0
+
+            Y_t_g_1hot_ = torch.nn.functional.one_hot(Y_t_g, 19).to(
+                device
+            )  # [B, L, M, 19]
+            Y_t_p_1hot_ = torch.nn.functional.one_hot(Y_t_p, 8).to(
+                device
+            )  # [B, L, M, 8]
+            Y_t_1hot_ = torch.nn.functional.one_hot(Y_t, 120).to(
+                device
+            )  # [B, L, M, 120]
 
             Y_t_1hot_ = torch.cat(
                 [Y_t_1hot_, Y_t_g_1hot_, Y_t_p_1hot_], -1
@@ -869,8 +874,12 @@ class ProteinFeaturesLigand(torch.nn.Module):
             D_Ca_Y = self._rbf(
                 torch.sqrt(torch.sum((Ca[:, :, None, :] - Y) ** 2, -1) + 1e-6)
             )
-            D_C_Y = self._rbf(torch.sqrt(torch.sum((C[:, :, None, :] - Y) ** 2, -1) + 1e-6))
-            D_O_Y = self._rbf(torch.sqrt(torch.sum((O[:, :, None, :] - Y) ** 2, -1) + 1e-6))
+            D_C_Y = self._rbf(
+                torch.sqrt(torch.sum((C[:, :, None, :] - Y) ** 2, -1) + 1e-6)
+            )
+            D_O_Y = self._rbf(
+                torch.sqrt(torch.sum((O[:, :, None, :] - Y) ** 2, -1) + 1e-6)
+            )
             D_Cb_Y = self._rbf(
                 torch.sqrt(torch.sum((Cb[:, :, None, :] - Y) ** 2, -1) + 1e-6)
             )
@@ -885,7 +894,8 @@ class ProteinFeaturesLigand(torch.nn.Module):
 
             Y_edges = self._rbf(
                 torch.sqrt(
-                    torch.sum((Y[:, :, :, None, :] - Y[:, :, None, :, :]) ** 2, -1) + 1e-6
+                    torch.sum((Y[:, :, :, None, :] - Y[:, :, None, :, :]) ** 2, -1)
+                    + 1e-6
                 )
             )  # [B, L, M, M, num_bins]
 
@@ -894,7 +904,7 @@ class ProteinFeaturesLigand(torch.nn.Module):
 
             Y_edges = self.norm_y_edges(Y_edges)
             Y_nodes = self.norm_y_nodes(Y_nodes)
-    
+
         else:
             Y_nodes = None
             Y_edges = None
@@ -902,22 +912,13 @@ class ProteinFeaturesLigand(torch.nn.Module):
             V = None
             Y_m = None
 
-        
         return V, E, E_idx, Y_nodes, Y_edges, Y_m
 
 
-
-
-
-
-
-
-
-
 def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
-    '''
+    """
     from ligandmpnn with batch support
-    '''
+    """
     device = CB.device
     batch_size = CB.shape[0]
     if (
@@ -931,7 +932,7 @@ def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
             f"CB={batch_size}, mask={mask.shape[0]}, Y={Y.shape[0]}, "
             f"Y_t={Y_t.shape[0]}, Y_m={Y_m.shape[0]}"
         )
-    
+
     mask_CBY = mask[:, :, None] * Y_m[:, None, :]  # [B,A,C]
     L2_AB = torch.sum((CB[:, :, None, :] - Y[:, None, :, :]) ** 2, -1)  # [B,A,C]
     L2_AB = L2_AB * mask_CBY + (1 - mask_CBY) * 1000.0
@@ -941,22 +942,32 @@ def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
     D_AB_closest = torch.sqrt(L2_AB_nn[:, :, 0])  # [B,A]
 
     if number_of_ligand_atoms > nn_idx.shape[2]:
-        batch_indices = torch.arange(batch_size, device=device)[:, None, None].expand(-1, CB.shape[1], nn_idx.shape[2])
+        batch_indices = torch.arange(batch_size, device=device)[:, None, None].expand(
+            -1, CB.shape[1], nn_idx.shape[2]
+        )
     else:
-        batch_indices = torch.arange(batch_size, device=device)[:, None, None].expand(-1, CB.shape[1], number_of_ligand_atoms)
+        batch_indices = torch.arange(batch_size, device=device)[:, None, None].expand(
+            -1, CB.shape[1], number_of_ligand_atoms
+        )
 
     Y_tmp = Y[batch_indices, nn_idx]  # [B,A,K,3]
     Y_t_tmp = Y_t[batch_indices, nn_idx]  # [B,A,K]
     Y_m_tmp = Y_m[batch_indices, nn_idx]  # [B,A,K]
 
     Y = torch.zeros(
-        [batch_size, CB.shape[1], number_of_ligand_atoms, 3], dtype=torch.float32, device=device
+        [batch_size, CB.shape[1], number_of_ligand_atoms, 3],
+        dtype=torch.float32,
+        device=device,
     )
     Y_t = torch.zeros(
-        [batch_size, CB.shape[1], number_of_ligand_atoms], dtype=torch.int32, device=device
+        [batch_size, CB.shape[1], number_of_ligand_atoms],
+        dtype=torch.int32,
+        device=device,
     )
     Y_m = torch.zeros(
-        [batch_size, CB.shape[1], number_of_ligand_atoms], dtype=torch.int32, device=device
+        [batch_size, CB.shape[1], number_of_ligand_atoms],
+        dtype=torch.int32,
+        device=device,
     )
 
     num_nn_update = Y_tmp.shape[2]
@@ -967,11 +978,16 @@ def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
     return Y, Y_t, Y_m, D_AB_closest
 
 
-
-def compute_ligand_atom(input_dict, batch_dict,number_ligand_atom=10,cutoff_for_score=8.0,mpnn_cutoff=False):
-    '''
+def compute_ligand_atom(
+    input_dict,
+    batch_dict,
+    number_ligand_atom=10,
+    cutoff_for_score=8.0,
+    mpnn_cutoff=False,
+):
+    """
     ligandmpnn input features
-    '''
+    """
     device = input_dict["X"].device
     batch_size = input_dict["X"].size(0)
     all_batch_index = batch_dict["batch_index"].long()
@@ -996,30 +1012,30 @@ def compute_ligand_atom(input_dict, batch_dict,number_ligand_atom=10,cutoff_for_
         non_protein_batch_index,
         batch_size=batch_size,
     )
-    
-    N = input_dict["X"][:, :,0, :]
-    CA = input_dict["X"][:,:, 1, :]
-    C = input_dict["X"][:, :,2, :]
+
+    N = input_dict["X"][:, :, 0, :]
+    CA = input_dict["X"][:, :, 1, :]
+    C = input_dict["X"][:, :, 2, :]
     b = CA - N
     c = C - CA
     a = torch.cross(b, c, axis=-1)
     CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA
 
-
-    Y, Y_t, Y_m, D_AB_closest= get_nearest_neighbours(CB, input_dict['mask'], Y, Y_t, Y_mask, number_ligand_atom)
+    Y, Y_t, Y_m, D_AB_closest = get_nearest_neighbours(
+        CB, input_dict["mask"], Y, Y_t, Y_mask, number_ligand_atom
+    )
     if mpnn_cutoff:
-        mask_XY = (D_AB_closest < cutoff_for_score) * input_dict['mask'] * Y_m[:,:, 0]
+        mask_XY = (D_AB_closest < cutoff_for_score) * input_dict["mask"] * Y_m[:, :, 0]
         Y_m = mask_XY[:, :, None] * Y_m
-        
+
     input_dict["Y"] = Y
     input_dict["Y_t"] = Y_t
     input_dict["Y_m"] = Y_m
 
-
     return input_dict
 
 
-def dense_input(batch_dict,number_ligand_atom=False,mpnn_cutoff=False):
+def dense_input(batch_dict, number_ligand_atom=False, mpnn_cutoff=False):
     batch_size = batch_dict["residue_token"].size(0)
     all_batch_index = batch_dict["batch_index"].long()
     if all_batch_index.numel() == 0:
@@ -1039,15 +1055,25 @@ def dense_input(batch_dict,number_ligand_atom=False,mpnn_cutoff=False):
     overall_mask = protein_mask & backbone_atom_mask & not_pad_mask & backbone_mask
     backbone_positions = batch_dict["position"][overall_mask]
 
-    flatten_pos = batch_dict["position"][center_mask].unsqueeze(1).repeat(1,4,1).view(-1,3)
-    flatten_protein_mask = overall_mask[center_mask].unsqueeze(1).repeat(1,4).view(-1)
+    flatten_pos = (
+        batch_dict["position"][center_mask].unsqueeze(1).repeat(1, 4, 1).view(-1, 3)
+    )
+    flatten_protein_mask = overall_mask[center_mask].unsqueeze(1).repeat(1, 4).view(-1)
     flatten_pos[flatten_protein_mask] = backbone_positions
-    flatten_batch_index = all_batch_index[center_mask].unsqueeze(1).repeat(1,4).view(-1)
-    flatten_chain_id = batch_dict["chain_id"][center_mask].unsqueeze(1).repeat(1,4).view(-1)
-    flatten_residue_index = batch_dict["residue_index"][center_mask].unsqueeze(1).repeat(1,4).view(-1)
+    flatten_batch_index = (
+        all_batch_index[center_mask].unsqueeze(1).repeat(1, 4).view(-1)
+    )
+    flatten_chain_id = (
+        batch_dict["chain_id"][center_mask].unsqueeze(1).repeat(1, 4).view(-1)
+    )
+    flatten_residue_index = (
+        batch_dict["residue_index"][center_mask].unsqueeze(1).repeat(1, 4).view(-1)
+    )
 
     if flatten_batch_index.numel() == 0:
-        raise ValueError("No center atoms available after backbone filtering in dense_input")
+        raise ValueError(
+            "No center atoms available after backbone filtering in dense_input"
+        )
 
     padded_backbone_positions, padded_backbone_positions_mask = to_dense_batch(
         flatten_pos, flatten_batch_index, batch_size=batch_size
@@ -1074,8 +1100,16 @@ def dense_input(batch_dict,number_ligand_atom=False,mpnn_cutoff=False):
         )[:, :, 0],
     }
 
-    if number_ligand_atom  and batch_dict['residue_token'][~batch_dict['is_protein']].shape[0] > 0:
-        input_features= compute_ligand_atom(input_features, batch_dict, number_ligand_atom=number_ligand_atom,mpnn_cutoff=mpnn_cutoff)
+    if (
+        number_ligand_atom
+        and batch_dict["residue_token"][~batch_dict["is_protein"]].shape[0] > 0
+    ):
+        input_features = compute_ligand_atom(
+            input_features,
+            batch_dict,
+            number_ligand_atom=number_ligand_atom,
+            mpnn_cutoff=mpnn_cutoff,
+        )
     return input_features
 
 
@@ -1141,12 +1175,14 @@ class BackboneEncoder(nn.Module):
         augment_eps: float,
         backbone_diheral: bool = False,
         number_ligand_atom: int = 0,
-        mpnn_cutoff = False,
+        mpnn_cutoff=False,
     ):
         super().__init__()
         self.dim = dim
-        self.number_ligand_atom =number_ligand_atom
-        self.residue_token_embedding = nn.Embedding(num_residue_tokens, hidden_dim) #embedding all residue type include ligand
+        self.number_ligand_atom = number_ligand_atom
+        self.residue_token_embedding = nn.Embedding(
+            num_residue_tokens, hidden_dim
+        )  # embedding all residue type include ligand
         self.timestep_emb = FourierEmbedding(hidden_dim)
         self.mpnn_cutoff = mpnn_cutoff
         if number_ligand_atom:
@@ -1157,7 +1193,7 @@ class BackboneEncoder(nn.Module):
                 num_rbf=num_rbf,
                 top_k=top_k,
                 augment_eps=augment_eps,
-                atom_context_num = number_ligand_atom,          
+                atom_context_num=number_ligand_atom,
             )
         else:
             self.edge_encoder = ProteinFeatures(
@@ -1193,16 +1229,37 @@ class BackboneEncoder(nn.Module):
             residue_token, batch_idx, batch_size=batch_size
         )
         B, N = padded_residue_token.size()
-        input_features = dense_input(batch_dict, number_ligand_atom=self.number_ligand_atom,mpnn_cutoff = self.mpnn_cutoff)
+        input_features = dense_input(
+            batch_dict,
+            number_ligand_atom=self.number_ligand_atom,
+            mpnn_cutoff=self.mpnn_cutoff,
+        )
 
         # time_emb = self.timestep_emb(timestep.repeat(1,N))
-        residue_context_embedding, E, E_idx, Y_nodes, Y_edges, Y_m = self.edge_encoder(input_features)
+        residue_context_embedding, E, E_idx, Y_nodes, Y_edges, Y_m = self.edge_encoder(
+            input_features
+        )
         residue_type_embedding = self.residue_token_embedding(padded_residue_token)
         if hasattr(self, "dihedral_encoder"):
             V = self.proj(
-                torch.cat([residue_type_embedding, self.dihedral_encoder(input_features["X"])], dim=-1)
+                torch.cat(
+                    [
+                        residue_type_embedding,
+                        self.dihedral_encoder(input_features["X"]),
+                    ],
+                    dim=-1,
+                )
             )
         else:
             V = self.proj(residue_type_embedding)
 
-        return V, E, E_idx, input_features["mask"].bool(),residue_context_embedding,Y_nodes, Y_edges, Y_m 
+        return (
+            V,
+            E,
+            E_idx,
+            input_features["mask"].bool(),
+            residue_context_embedding,
+            Y_nodes,
+            Y_edges,
+            Y_m,
+        )

@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from adflip.model.zoidberg.transition_block import TransitionBlock
 from adflip.model.zoidberg.local_atom_attention import DistanceEmbedding
+from adflip.model.zoidberg.transition_block import TransitionBlock
 
 
 class LocalAtomFAIPA(nn.Module):

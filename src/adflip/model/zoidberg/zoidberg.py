@@ -1,16 +1,15 @@
 import torch
 import torch.nn as nn
 
-
 from adflip.model.zoidberg.atom_encoder import AtomEncoder
-from adflip.model.zoidberg.local_atom_attention import LocalAtomAttention
 from adflip.model.zoidberg.atom_to_node_embedder import AtomToNodeEmbedder
+from adflip.model.zoidberg.local_atom_attention import LocalAtomAttention
 from adflip.model.zoidberg.node_to_atom_embedder import NodeToAtomEmbedder
 from adflip.model.zoidberg.transition_block import TransitionBlock
 from adflip.model.zoidberg.utils import (
+    StartEndPad,
     gather_residue_average_from_atoms,
     transform_residue_index,
-    StartEndPad,
 )
 
 
@@ -111,6 +110,7 @@ class Zoidberg(nn.Module):
 
 if __name__ == "__main__":
     import torch
+
     from adflip.data.all_atom_parse import get_example_batch
 
     batch_dict = get_example_batch().__dict__

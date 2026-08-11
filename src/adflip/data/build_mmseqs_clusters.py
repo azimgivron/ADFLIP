@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import argparse
+import pickle
 from collections import OrderedDict
 from pathlib import Path
-import pickle
 from typing import Optional
 
 

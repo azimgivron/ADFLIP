@@ -1,25 +1,24 @@
-import torch
 import glob
 import os
-import numpy as np
-import pandas as pd
-import torch.utils
-import torch.utils.data
-import random
 import pickle
-from tqdm import tqdm
-
+import random
 from pathlib import Path
 from typing import Dict, List, Literal
 
-from adflip.data.all_atom_parse import residue_tokens
-from adflip.data import all_atom_parse as aap
-from adflip.data.all_atom_parse import StructureData
-from adflip.data.utils import TimeSortedCacheRBT
+import numpy as np
+import pandas as pd
+import torch
+import torch.utils
+import torch.utils.data
 from scipy.spatial import cKDTree
+from tqdm import tqdm
 
+from adflip.data import all_atom_parse as aap
+from adflip.data.all_atom_parse import StructureData, residue_tokens
+from adflip.data.utils import TimeSortedCacheRBT
 
 Partition = Literal["train", "valid", "test"]
+
 
 def propagate_mask_vectorized(mask, index):
     # Ensure inputs are tensors
@@ -33,10 +32,11 @@ def propagate_mask_vectorized(mask, index):
     any_true = torch.zeros_like(unique_indices, dtype=torch.bool)
 
     # Use scatter_reduce to check if any mask is True for each unique index
-    any_true.scatter_reduce_(0, inverse_indices, mask, reduce='amax')
+    any_true.scatter_reduce_(0, inverse_indices, mask, reduce="amax")
 
     # Expand the any_true tensor to match the original shape
     return any_true[inverse_indices]
+
 
 def _check_bounds(indices: np.ndarray, length: int, name: str):
     """Assert index bounds for array indexing."""
@@ -122,19 +122,24 @@ def _trim_poly_his_in_assembly(
         if drop_short_chain and len(np.unique(kept_res_ids)) < 4:
             remove_residue_ids.update(np.unique(chain_res_ids).tolist())
         else:
-            remove_residue_ids.update([rid for rid in chain_res_ids if rid not in set(kept_res_ids)])
+            remove_residue_ids.update(
+                [rid for rid in chain_res_ids if rid not in set(kept_res_ids)]
+            )
 
     if not remove_residue_ids:
         return data
 
     keep_mask = ~np.isin(data.residue_index, list(remove_residue_ids))
     trimmed = aap.slice_structure_data(data, keep_mask)
-    for k in ("asmb_ids", "asmb_chains", "asmb_chain_indices", "asym_id_to_chain_index"):
+    for k in (
+        "asmb_ids",
+        "asmb_chains",
+        "asmb_chain_indices",
+        "asym_id_to_chain_index",
+    ):
         if hasattr(data, k):
             setattr(trimmed, k, getattr(data, k))
     return trimmed
-
-
 
 
 class AllAtomDataset(torch.utils.data.Dataset):
@@ -153,7 +158,7 @@ class AllAtomDataset(torch.utils.data.Dataset):
             self.max_num_residues = cfg.max_num_residues
         if max_num_atoms is None:
             self.max_num_atoms = cfg.max_num_atoms
-        self.dataset_type   = dataset_type
+        self.dataset_type = dataset_type
         self.cut_position_type = cfg.cut_position_type
         self.random_gen = np.random.default_rng(cfg.random_seed)
 
@@ -183,7 +188,9 @@ class AllAtomDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.structs)
 
-    def __getitem__(self, idx, mask_chain_id = None, data_override=None) -> aap.StructureData:
+    def __getitem__(
+        self, idx, mask_chain_id=None, data_override=None
+    ) -> aap.StructureData:
         try:
             if data_override is not None:
                 data = data_override
@@ -213,9 +220,13 @@ class AllAtomDataset(torch.utils.data.Dataset):
                 mask_chain_id = mapped
             num_residues = data.num_residues()
 
-
-            if np.unique(data.residue_index)[-1]+1 != np.unique(data.residue_index).shape[0]:
-                data.residue_index = np.unique(data.residue_index, return_inverse=True)[1]
+            if (
+                np.unique(data.residue_index)[-1] + 1
+                != np.unique(data.residue_index).shape[0]
+            ):
+                data.residue_index = np.unique(data.residue_index, return_inverse=True)[
+                    1
+                ]
 
             if num_residues > self.max_num_residues:
                 # Here can do all kinds of complicated logic about finding ligands
@@ -225,7 +236,7 @@ class AllAtomDataset(torch.utils.data.Dataset):
                 chain_mask = data.chain_id == center_chain_id
                 if self.cut_position_type == "protein":
                     random_position = self.random_gen.choice(
-                        data.position[data.is_protein&chain_mask], axis=0
+                        data.position[data.is_protein & chain_mask], axis=0
                     )
                 elif self.cut_position_type == "interface":
                     # find atoms near the interface between different chains
@@ -253,19 +264,15 @@ class AllAtomDataset(torch.utils.data.Dataset):
                             )
                     else:
                         # single chain, just pick random atom
-                        random_position = self.random_gen.choice(
-                            data.position, axis=0
-                        )
+                        random_position = self.random_gen.choice(data.position, axis=0)
                 elif self.cut_position_type == "ligand":
-                    if data.is_protein.sum() == data.is_protein.shape[0]: # no ligand
-                        random_position = self.random_gen.choice(
-                            data.position, axis=0
-                        )
+                    if data.is_protein.sum() == data.is_protein.shape[0]:  # no ligand
+                        random_position = self.random_gen.choice(data.position, axis=0)
                         # print("No ligand found, path", self.structs[idx])
                     else:
                         random_position = self.random_gen.choice(
-                        data.position[~data.is_protein], axis=0
-                    )
+                            data.position[~data.is_protein], axis=0
+                        )
 
                 data = aap.get_closest_n_residues(
                     data, random_position, n=self.max_num_residues
@@ -292,63 +299,81 @@ class AllAtomDataset(torch.utils.data.Dataset):
             data = self.interact_residue(data)
 
             if self.dataset_type == "train":
-                return self.corrupt(data,mask_chain_id=mask_chain_id)
+                return self.corrupt(data, mask_chain_id=mask_chain_id)
             else:
-                return self.corrupt(data, time=np.array([self.test_time]),mask_chain_id=mask_chain_id)
+                return self.corrupt(
+                    data, time=np.array([self.test_time]), mask_chain_id=mask_chain_id
+                )
 
         except Exception as e:
             print(f"Failed to parse {self.structs[idx]}", e)
             return None
 
-    def corrupt(self, data: aap.StructureData, time=None, mask_chain_id=None) -> aap.StructureData:
+    def corrupt(
+        self, data: aap.StructureData, time=None, mask_chain_id=None
+    ) -> aap.StructureData:
         batch_dict = data.__dict__
 
         # Step 1: determine which chains to mask (designable chains)
-        mask_chain = np.zeros_like(batch_dict['chain_id'], dtype=bool)
+        mask_chain = np.zeros_like(batch_dict["chain_id"], dtype=bool)
         if mask_chain_id is not None:
             mask_chain_id = np.atleast_1d(mask_chain_id)
-            mask_chain[np.isin(batch_dict['chain_id'], mask_chain_id)] = True
+            mask_chain[np.isin(batch_dict["chain_id"], mask_chain_id)] = True
 
         # Step 2: sample which center residues get corrupted
-        num_residue_tokens = batch_dict['is_center'].sum()
+        num_residue_tokens = batch_dict["is_center"].sum()
         time_step = time if time is not None else np.random.uniform(0, 1, 1)
         u = np.random.uniform(0, 1, num_residue_tokens)
         residue_is_masked = u < (1.0 - time_step)
         # only mask residues in designable chains
-        residue_is_masked[~mask_chain[batch_dict['is_center']]] = False
+        residue_is_masked[~mask_chain[batch_dict["is_center"]]] = False
 
         # Step 3: propagate <MASK> from center to all atoms of masked residues
-        noisy_residue_token = np.copy(batch_dict['residue_token'])
-        protein_positions = np.nonzero(batch_dict['is_protein'])[0]
-        _check_bounds(protein_positions, batch_dict['residue_index'].shape[0], 'residue_index (via protein_positions)')
-        protein_center_idx = batch_dict['residue_index'][protein_positions]
-        _check_bounds(protein_center_idx, residue_is_masked.shape[0], 'residue_is_masked (via protein_center_idx)')
+        noisy_residue_token = np.copy(batch_dict["residue_token"])
+        protein_positions = np.nonzero(batch_dict["is_protein"])[0]
+        _check_bounds(
+            protein_positions,
+            batch_dict["residue_index"].shape[0],
+            "residue_index (via protein_positions)",
+        )
+        protein_center_idx = batch_dict["residue_index"][protein_positions]
+        _check_bounds(
+            protein_center_idx,
+            residue_is_masked.shape[0],
+            "residue_is_masked (via protein_center_idx)",
+        )
 
         protein_atom_masked = residue_is_masked[protein_center_idx]
-        atom_should_mask = np.zeros_like(batch_dict['is_protein'], dtype=bool)
+        atom_should_mask = np.zeros_like(batch_dict["is_protein"], dtype=bool)
         atom_should_mask[protein_positions] = protein_atom_masked
-        noisy_residue_token[atom_should_mask] = residue_tokens['<MASK>']
-        batch_dict['noisy_residue_token'] = noisy_residue_token
+        noisy_residue_token[atom_should_mask] = residue_tokens["<MASK>"]
+        batch_dict["noisy_residue_token"] = noisy_residue_token
 
         # Step 4: build keep_mask — remove sidechain atoms of masked residues
         #   backbone atoms are always kept; sidechain atoms only kept if residue is unmasked
-        keep_mask = np.ones_like(batch_dict['residue_token'], dtype=bool)
-        sidechain_protein = (~batch_dict['is_backbone']) & batch_dict['is_protein']
-        side_idx = batch_dict['residue_index'][sidechain_protein]
-        _check_bounds(side_idx, residue_is_masked.shape[0], 'residue_is_masked (via sidechain indices)')
+        keep_mask = np.ones_like(batch_dict["residue_token"], dtype=bool)
+        sidechain_protein = (~batch_dict["is_backbone"]) & batch_dict["is_protein"]
+        side_idx = batch_dict["residue_index"][sidechain_protein]
+        _check_bounds(
+            side_idx,
+            residue_is_masked.shape[0],
+            "residue_is_masked (via sidechain indices)",
+        )
         keep_mask[sidechain_protein] = ~residue_is_masked[side_idx]
 
         # Step 5: apply keep_mask to all per-atom fields
-        L = batch_dict['residue_token'].shape[0]
+        L = batch_dict["residue_token"].shape[0]
         if keep_mask.shape[0] != L:
-            raise IndexError(f"Mask length mismatch: expected {L}, got {keep_mask.shape[0]}")
+            raise IndexError(
+                f"Mask length mismatch: expected {L}, got {keep_mask.shape[0]}"
+            )
 
         for name, arr in list(batch_dict.items()):
-            if name == 'noisy_residue_token':
+            if name == "noisy_residue_token":
                 batch_dict[name] = noisy_residue_token[keep_mask]
-            elif name == 'time_step':
+            elif name == "time_step":
                 batch_dict[name] = time_step
-            elif name == 'is_mask':
+            elif name == "is_mask":
                 batch_dict[name] = mask_chain[keep_mask]
             elif isinstance(arr, np.ndarray) and arr.shape[0] == L:
                 batch_dict[name] = arr[keep_mask]
@@ -356,7 +381,9 @@ class AllAtomDataset(torch.utils.data.Dataset):
         # Step 6: reconstruct StructureData, preserving extra metadata (e.g., assemblies)
         update_mask_chain = mask_chain[keep_mask]
         core = {k: v for k, v in batch_dict.items() if k in aap.structure_data_fields}
-        extra = {k: v for k, v in batch_dict.items() if k not in aap.structure_data_fields}
+        extra = {
+            k: v for k, v in batch_dict.items() if k not in aap.structure_data_fields
+        }
         data = aap.StructureData(**core)
         data.mask_chain = update_mask_chain
         for k, v in extra.items():
@@ -364,9 +391,22 @@ class AllAtomDataset(torch.utils.data.Dataset):
 
         # Debug diagnostics
         if getattr(self.cfg, "debug_corrupt", False):
-            center_mask = batch_dict['is_center'] if isinstance(batch_dict['is_center'], np.ndarray) and batch_dict['is_center'].dtype == bool else batch_dict['is_center'].astype(bool)
-            chain_center_mask = mask_chain[center_mask] if center_mask.shape[0] == mask_chain.shape[0] else np.zeros_like(residue_is_masked)
-            masked_in_chain = residue_is_masked[chain_center_mask] if chain_center_mask.shape[0] == residue_is_masked.shape[0] else residue_is_masked
+            center_mask = (
+                batch_dict["is_center"]
+                if isinstance(batch_dict["is_center"], np.ndarray)
+                and batch_dict["is_center"].dtype == bool
+                else batch_dict["is_center"].astype(bool)
+            )
+            chain_center_mask = (
+                mask_chain[center_mask]
+                if center_mask.shape[0] == mask_chain.shape[0]
+                else np.zeros_like(residue_is_masked)
+            )
+            masked_in_chain = (
+                residue_is_masked[chain_center_mask]
+                if chain_center_mask.shape[0] == residue_is_masked.shape[0]
+                else residue_is_masked
+            )
             frac = masked_in_chain.mean() if masked_in_chain.size > 0 else float("nan")
             print(
                 f"[debug corrupt] t={float(time_step):.3f} centers={residue_is_masked.size} in_chain={chain_center_mask.sum()} "
@@ -375,33 +415,44 @@ class AllAtomDataset(torch.utils.data.Dataset):
 
         return data
 
+    def interact_residue(self, data):
+        protein_pos = np.expand_dims(data.position[data.is_protein], axis=1)
+        non_protein_pos = np.expand_dims(data.position[~data.is_protein], axis=0)
+        ion_pos = np.expand_dims(data.position[data.is_ion], axis=0)
+        nucleotide_pos = np.expand_dims(data.position[data.is_nucleotide], axis=0)
+        molecule_pos = np.expand_dims(
+            data.position[~data.is_protein & ~data.is_ion & ~data.is_nucleotide], axis=0
+        )
 
-    def interact_residue(self,data):
-        protein_pos = np.expand_dims(data.position[data.is_protein],axis=1)
-        non_protein_pos = np.expand_dims(data.position[~data.is_protein],axis=0)
-        ion_pos = np.expand_dims(data.position[data.is_ion],axis=0)
-        nucleotide_pos = np.expand_dims(data.position[data.is_nucleotide],axis=0)
-        molecule_pos = np.expand_dims(data.position[~data.is_protein&~data.is_ion&~data.is_nucleotide],axis=0)
+        dist_non_protein = np.sqrt(
+            (np.sum((protein_pos - non_protein_pos) ** 2, axis=-1))
+        )
+        interact_non_protein = np.any(dist_non_protein < 5, axis=1)
+        dist_ion = np.sqrt((np.sum((protein_pos - ion_pos) ** 2, axis=-1)))
+        interact_ion = np.any(dist_ion < 5, axis=1)
+        dist_nucleotide = np.sqrt(
+            (np.sum((protein_pos - nucleotide_pos) ** 2, axis=-1))
+        )
+        interact_nucleotide = np.any(dist_nucleotide < 5, axis=1)
+        dist_molecule = np.sqrt((np.sum((protein_pos - molecule_pos) ** 2, axis=-1)))
+        interact_molecule = np.any(dist_molecule < 5, axis=1)
 
-        dist_non_protein = np.sqrt((np.sum((protein_pos-non_protein_pos)**2,axis=-1)))
-        interact_non_protein = np.any(dist_non_protein<5,axis=1)
-        dist_ion = np.sqrt((np.sum((protein_pos-ion_pos)**2,axis=-1)))
-        interact_ion = np.any(dist_ion<5,axis=1)
-        dist_nucleotide = np.sqrt((np.sum((protein_pos-nucleotide_pos)**2,axis=-1)))
-        interact_nucleotide = np.any(dist_nucleotide<5,axis=1)
-        dist_molecule = np.sqrt((np.sum((protein_pos-molecule_pos)**2,axis=-1)))
-        interact_molecule = np.any(dist_molecule<5,axis=1)
-
-
-        interact_non_protein_res = np.zeros(data.residue_index.shape[0],dtype=bool)
-        interact_non_protein_res[data.is_protein] = propagate_mask_vectorized(interact_non_protein,data.residue_index[data.is_protein])
-        interact_ion_res = np.zeros(data.residue_index.shape[0],dtype=bool)
-        interact_ion_res[data.is_protein] = propagate_mask_vectorized(interact_ion,data.residue_index[data.is_protein])
-        interact_nucleotide_res = np.zeros(data.residue_index.shape[0],dtype=bool)
-        interact_nucleotide_res[data.is_protein] = propagate_mask_vectorized(interact_nucleotide,data.residue_index[data.is_protein])
-        interact_molecule_res = np.zeros(data.residue_index.shape[0],dtype=bool)
-        interact_molecule_res[data.is_protein] = propagate_mask_vectorized(interact_molecule,data.residue_index[data.is_protein])
-
+        interact_non_protein_res = np.zeros(data.residue_index.shape[0], dtype=bool)
+        interact_non_protein_res[data.is_protein] = propagate_mask_vectorized(
+            interact_non_protein, data.residue_index[data.is_protein]
+        )
+        interact_ion_res = np.zeros(data.residue_index.shape[0], dtype=bool)
+        interact_ion_res[data.is_protein] = propagate_mask_vectorized(
+            interact_ion, data.residue_index[data.is_protein]
+        )
+        interact_nucleotide_res = np.zeros(data.residue_index.shape[0], dtype=bool)
+        interact_nucleotide_res[data.is_protein] = propagate_mask_vectorized(
+            interact_nucleotide, data.residue_index[data.is_protein]
+        )
+        interact_molecule_res = np.zeros(data.residue_index.shape[0], dtype=bool)
+        interact_molecule_res[data.is_protein] = propagate_mask_vectorized(
+            interact_molecule, data.residue_index[data.is_protein]
+        )
 
         data.interact_non_protein_res = interact_non_protein_res
         data.interact_ion_res = interact_ion_res
@@ -416,6 +467,7 @@ def _load_cluster_ids(path: Path | str) -> List[int]:
     with open(path, "r", encoding="utf-8") as f:
         return [int(line.strip()) for line in f]
 
+
 class Cluster_AllAtomDataset(AllAtomDataset):
     def __init__(
         self,
@@ -427,7 +479,15 @@ class Cluster_AllAtomDataset(AllAtomDataset):
         max_num_residues=None,
         max_num_atoms=None,
     ):
-        super().__init__(cfg, dataset_type, use_cache, cache_length, test_time, max_num_residues, max_num_atoms)
+        super().__init__(
+            cfg,
+            dataset_type,
+            use_cache,
+            cache_length,
+            test_time,
+            max_num_residues,
+            max_num_atoms,
+        )
         if max_num_residues is None:
             self.max_num_residues = cfg.max_num_residues
             self.max_num_atoms = cfg.max_num_atoms
@@ -435,7 +495,11 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             self.max_num_residues = max_num_residues
             self.max_num_atoms = max_num_atoms
         self.cfg = cfg
-        assert dataset_type in ["train", "valid", "test"], f"Invalid dataset type: {dataset_type}"
+        assert dataset_type in [
+            "train",
+            "valid",
+            "test",
+        ], f"Invalid dataset type: {dataset_type}"
         # prefer split-specific data paths if provided
         if dataset_type == "train":
             self.data_path = getattr(cfg, "train_data_path", cfg.data_path)
@@ -447,11 +511,17 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             self.cluster_dict = pickle.load(f)
 
         # load cluster id lists; fall back to valid for test if not provided
-        test_cluster_path = getattr(cfg, "test_cluster", None) or getattr(cfg, "validation_cluster", None)
+        test_cluster_path = getattr(cfg, "test_cluster", None) or getattr(
+            cfg, "validation_cluster", None
+        )
         id_lists: Dict[Partition, List[int]] = {
             "train": _load_cluster_ids(cfg.train_cluster),
             "valid": _load_cluster_ids(cfg.validation_cluster),
-            "test": _load_cluster_ids(test_cluster_path) if test_cluster_path else _load_cluster_ids(cfg.validation_cluster),
+            "test": (
+                _load_cluster_ids(test_cluster_path)
+                if test_cluster_path
+                else _load_cluster_ids(cfg.validation_cluster)
+            ),
         }
         self.sel_keys = id_lists[dataset_type]
         self.select_cluster = {
@@ -474,31 +544,29 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             self.select_cluster = filtered
             self.sel_keys = list(self.select_cluster.keys())
             n_after = sum(len(v) for v in self.select_cluster.values())
-            print(f"Excluded PDBs filter: {n_before} chains -> {n_after} chains "
-                  f"({n_before - n_after} removed), "
-                  f"{len(self.select_cluster)} clusters remaining")
+            print(
+                f"Excluded PDBs filter: {n_before} chains -> {n_after} chains "
+                f"({n_before - n_after} removed), "
+                f"{len(self.select_cluster)} clusters remaining"
+            )
 
         self.all_pdb = []
         for _, v in self.select_cluster.items():
-            #v  17: ['5jog_0', '5joh_0', '5m5q_0', '4f7o_1', '4f7o_0'], 18: ['6jo8_2', '6ort_0', '6nk3_1', '6jo7_0', '6nk3_0']
+            # v  17: ['5jog_0', '5joh_0', '5m5q_0', '4f7o_1', '4f7o_0'], 18: ['6jo8_2', '6ort_0', '6nk3_1', '6jo7_0', '6nk3_0']
             v_ = list(set([x[:4] for x in v]))
             self.all_pdb.extend(v_)
         if self.use_cache:
             self.structs = [
-                os.path.join(
-                    self.data_path,
-                    x[1:3],
-                    x + ".npz"
-                ) for x in self.all_pdb
+                os.path.join(self.data_path, x[1:3], x + ".npz") for x in self.all_pdb
             ]
         else:
             self.structs = [
-                os.path.join(
-                    cfg.data_path,
-                    x+ ".cif.gz"
-                ) for x in self.all_pdb
+                os.path.join(cfg.data_path, x + ".cif.gz") for x in self.all_pdb
             ]
-        print(f"Dataset {dataset_type} contains {len(self.structs)} structures, {len(set(self.structs))} unique PDB IDs")
+        print(
+            f"Dataset {dataset_type} contains {len(self.structs)} structures, {len(set(self.structs))} unique PDB IDs"
+        )
+
     def __len__(self) -> int:
         return len(self.select_cluster.keys())
 
@@ -507,15 +575,23 @@ class Cluster_AllAtomDataset(AllAtomDataset):
         sample = random.choice(cluster)
         # check if sample in this cluster has same pdb id
         sel_pdb = sample[:4]
+
         def _chain_label(s: str) -> str:
             parts = s.split("_", 1)
             return parts[1] if len(parts) > 1 else s[4:]
+
         sample_list = [x for x in cluster if x[:4] == sel_pdb]
         anchor_label = _chain_label(sample)
         if self.use_cache:
-            sample_pdb_path = os.path.join(self.data_path, sample[1:3], sel_pdb + ".npz")
+            sample_pdb_path = os.path.join(
+                self.data_path, sample[1:3], sel_pdb + ".npz"
+            )
         else:
-            sample_pdb_path = os.path.join(''.join(self.structs[0].split('/')[:-2]),sample[1:3],sel_pdb + ".cif.gz")
+            sample_pdb_path = os.path.join(
+                "".join(self.structs[0].split("/")[:-2]),
+                sample[1:3],
+                sel_pdb + ".cif.gz",
+            )
         index = self.structs.index(sample_pdb_path)
 
         # load data once to determine assembly + chain mapping
@@ -533,7 +609,11 @@ class Cluster_AllAtomDataset(AllAtomDataset):
                     chain_map = chain_map.item()
                 elif chain_map.size > 0 and isinstance(chain_map.flat[0], dict):
                     chain_map = chain_map.flat[0]
-        elif isinstance(chain_map, list) and len(chain_map) == 1 and isinstance(chain_map[0], dict):
+        elif (
+            isinstance(chain_map, list)
+            and len(chain_map) == 1
+            and isinstance(chain_map[0], dict)
+        ):
             chain_map = chain_map[0]
         if not isinstance(chain_map, dict):
             chain_map = {}
@@ -550,7 +630,9 @@ class Cluster_AllAtomDataset(AllAtomDataset):
 
         cluster_chain_labels = [_chain_label(x) for x in sample_list]
         cluster_chain_indices = [
-            idx for idx in (_to_chain_index(lbl) for lbl in cluster_chain_labels) if idx is not None
+            idx
+            for idx in (_to_chain_index(lbl) for lbl in cluster_chain_labels)
+            if idx is not None
         ]
         anchor_idx = _to_chain_index(anchor_label)
 
@@ -558,32 +640,42 @@ class Cluster_AllAtomDataset(AllAtomDataset):
         asmb_indices = None
         if anchor_idx is not None and hasattr(data, "asmb_chain_indices"):
             candidates = [
-                idxs for idxs in getattr(data, "asmb_chain_indices", [])
+                idxs
+                for idxs in getattr(data, "asmb_chain_indices", [])
                 if anchor_idx in idxs
             ]
             if candidates:
                 asmb_indices = random.choice(candidates)
 
         if asmb_indices is not None:
-            mask_chain_id = [idx for idx in cluster_chain_indices if idx in asmb_indices]
+            mask_chain_id = [
+                idx for idx in cluster_chain_indices if idx in asmb_indices
+            ]
         else:
             mask_chain_id = cluster_chain_indices
 
         if not mask_chain_id:
-            mask_chain_id = [anchor_idx] if anchor_idx is not None else list(np.unique(data.chain_id))
+            mask_chain_id = (
+                [anchor_idx]
+                if anchor_idx is not None
+                else list(np.unique(data.chain_id))
+            )
 
         if getattr(self.cfg, "trim_his_tag", False):
             his_chain_ids = asmb_indices if asmb_indices is not None else mask_chain_id
             data = _trim_poly_his_in_assembly(
-            data,
-            his_chain_ids,
-            drop_short_chain=getattr(self.cfg, "trim_his_tag_drop_short_chain", True),
-        )
+                data,
+                his_chain_ids,
+                drop_short_chain=getattr(
+                    self.cfg, "trim_his_tag_drop_short_chain", True
+                ),
+            )
 
         if getattr(self.cfg, "debug_assembly_mask", False):
             asmb_ids = getattr(data, "asmb_ids", [])
             asmb_chain_indices = getattr(data, "asmb_chain_indices", [])
             anchor_asmb = None
+
             def _same_indices(a, b):
                 if a is b:
                     return True
@@ -591,13 +683,23 @@ class Cluster_AllAtomDataset(AllAtomDataset):
                     return np.array_equal(np.asarray(a), np.asarray(b))
                 except Exception:
                     return False
+
             if asmb_indices is not None:
                 for i, idxs in enumerate(asmb_chain_indices):
                     if _same_indices(idxs, asmb_indices):
                         anchor_asmb = asmb_ids[i] if i < len(asmb_ids) else i
                         break
             print("\n[debug assembly mask]")
-            print("pdb:", sel_pdb, "sample:", sample, "anchor_label:", anchor_label, "anchor_idx:", anchor_idx)
+            print(
+                "pdb:",
+                sel_pdb,
+                "sample:",
+                sample,
+                "anchor_label:",
+                anchor_label,
+                "anchor_idx:",
+                anchor_idx,
+            )
             print("cluster_chain_labels:", cluster_chain_labels)
             print("cluster_chain_indices:", cluster_chain_indices)
             print("asmb_ids:", asmb_ids)
@@ -605,7 +707,9 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             print("chosen_assembly:", anchor_asmb, "chosen_indices:", asmb_indices)
             print("final_mask_chain_id:", mask_chain_id)
 
-        return super().__getitem__(index,mask_chain_id=mask_chain_id, data_override=data)
+        return super().__getitem__(
+            index, mask_chain_id=mask_chain_id, data_override=data
+        )
 
 
 if __name__ == "__main__":
@@ -619,7 +723,6 @@ if __name__ == "__main__":
     #     use_cathe = True
 
     # dataset = AllAtomDataset(Config())
-
 
     class Config:
         # parsed data paths (split-specific)
@@ -641,13 +744,14 @@ if __name__ == "__main__":
         random_seed = 42
         cut_position_type = "ligand"
         use_cathe = True
-        debug_assembly_mask =  False
+        debug_assembly_mask = False
         debug_corrupt = True
         trim_his_tag = False
         trim_his_tag_drop_short_chain = True
 
-
-    dataset = Cluster_AllAtomDataset(Config(), dataset_type="train", use_cache=True, cache_length=5000)
+    dataset = Cluster_AllAtomDataset(
+        Config(), dataset_type="train", use_cache=True, cache_length=5000
+    )
     print(f"valid dataset clusters: {len(dataset)}")
 
     num_checks = min(200, len(dataset))

@@ -1,14 +1,14 @@
+import hashlib
 import os
 import pickle
-import hashlib
+import shutil
+import tarfile
 import urllib.request
 from contextlib import closing
-import tarfile
-import shutil
 from typing import *
+
 import numpy as np
 import torch
-
 
 Array = Union[np.ndarray, torch.Tensor]
 
@@ -59,10 +59,10 @@ def md5_check(file_path: str, true_md5: str) -> bool:
     if not os.path.isfile(file_path):
         return False
 
-    with open(file_path, 'rb') as f:
+    with open(file_path, "rb") as f:
         data = f.read()
         return hashlib.md5(data).hexdigest() == true_md5
-    
+
 
 def download_file(file_url: str, destination: str, md5: Optional[str] = None) -> str:
     """Downloads a file.
@@ -71,13 +71,13 @@ def download_file(file_url: str, destination: str, md5: Optional[str] = None) ->
         file_url (str): Url from which to retrieve file.
         destination (str): Destination dir for saving.
         md5: (str, optional): MD5 of the file that should be downloaded.
-        
+
     Returns:
         str: The path to the downloaded file.
     """
 
     save_path = os.path.join(destination, os.path.basename(file_url))
-    
+
     # Check if file exists and has correct MD5.
     if os.path.isfile(save_path):
         if md5 and md5_check(save_path, md5):
@@ -89,26 +89,28 @@ def download_file(file_url: str, destination: str, md5: Optional[str] = None) ->
     with closing(urllib.request.urlopen(file_url)) as r:
         with open(save_path, "wb") as f:
             shutil.copyfileobj(r, f)
-        
-    # Double check that we have the right file.            
+
+    # Double check that we have the right file.
     if md5 and not md5_check(save_path, md5):
-        raise ValueError("MD5 of downloaded file does not match provided MD5. Double check the provided url and MD5.")
-                
+        raise ValueError(
+            "MD5 of downloaded file does not match provided MD5. Double check the provided url and MD5."
+        )
+
     return save_path
 
 
 def extract(zip_file: str) -> str:
-    """ Extracts a zipped file.
-    
+    """Extracts a zipped file.
+
     Args:
         zip_file (str): Path to zipped file.
-        
+
     Returns:
         str: The path with the unzipped contents
-    
+
     Modified from torchdrug/utils/file.py
     """
-    
+
     zip_name, extension = os.path.splitext(zip_file)
     if zip_name.endswith(".tar"):
         extension = ".tar" + extension
@@ -123,17 +125,21 @@ def extract(zip_file: str) -> str:
             os.makedirs(save_file, exist_ok=True)
             continue
         os.makedirs(os.path.dirname(save_file), exist_ok=True)
-        if not os.path.exists(save_file) or tar.getmember(_member).size != os.path.getsize(save_file):
+        if not os.path.exists(save_file) or tar.getmember(
+            _member
+        ).size != os.path.getsize(save_file):
             with tar.extractfile(_member) as fin, open(save_file, "wb") as fout:
                 shutil.copyfileobj(fin, fout)
-                
+
     if len(save_files) == 1:
         return save_files[0]
     else:
         return save_path
-            
-    
-def robust_norm(array: Array, axis: int = -1, l_norm: float = 2, eps: float = 1e-8) -> Array:
+
+
+def robust_norm(
+    array: Array, axis: int = -1, l_norm: float = 2, eps: float = 1e-8
+) -> Array:
     """Computes robust l-norm of vectors.
 
     Args:
@@ -141,17 +147,19 @@ def robust_norm(array: Array, axis: int = -1, l_norm: float = 2, eps: float = 1e
         axis (int, optional): Axis of array to norm. Defaults to -1.
         l_norm (float, optional): Norm-type to perform. Defaults to 2.
         eps (float, optional): Epsilon for robust norm computation. Defaults to 1e-8.
-        
+
     Returns:
         Array: Norm of axis of array
     """
     if isinstance(array, np.ndarray):
-        return (np.sum(array ** l_norm, axis=axis) + eps) ** (1 / l_norm)
+        return (np.sum(array**l_norm, axis=axis) + eps) ** (1 / l_norm)
     else:
-        return (torch.sum(array ** l_norm, dim=axis) + eps) ** (1 / l_norm)
+        return (torch.sum(array**l_norm, dim=axis) + eps) ** (1 / l_norm)
 
 
-def robust_normalize(array: Array, axis: int = -1, l_norm: float = 2, eps: float = 1e-8) -> Array:
+def robust_normalize(
+    array: Array, axis: int = -1, l_norm: float = 2, eps: float = 1e-8
+) -> Array:
     """Computes robust l-normalization of vectors.
 
     Args:
@@ -159,14 +167,18 @@ def robust_normalize(array: Array, axis: int = -1, l_norm: float = 2, eps: float
         axis (int, optional): Axis of array to normalize. Defaults to -1.
         l_norm (float, optional): Norm-type to perform. Defaults to 2.
         eps (float, optional): Epsilon for robust norma computation. Defaults to 1e-8.
-        
+
     Returns:
         Array: Normalized array
     """
     if isinstance(array, np.ndarray):
-        return array / np.expand_dims(robust_norm(array, axis=axis, l_norm=l_norm, eps=eps), axis=axis)
+        return array / np.expand_dims(
+            robust_norm(array, axis=axis, l_norm=l_norm, eps=eps), axis=axis
+        )
     else:
-        return array / robust_norm(array, axis=axis, l_norm=l_norm, eps=eps).unsqueeze(axis)
+        return array / robust_norm(array, axis=axis, l_norm=l_norm, eps=eps).unsqueeze(
+            axis
+        )
 
 
 def count_parameters(model: torch.nn.Module) -> int:
@@ -174,34 +186,36 @@ def count_parameters(model: torch.nn.Module) -> int:
 
 
 def get_mean_clashscore(dir, clashscore_file="clashscore_scores.txt"):
-    with open(os.path.join(dir, clashscore_file), 'r') as f:
+    with open(os.path.join(dir, clashscore_file), "r") as f:
         lines = f.readlines()
-        
-    scores = [float(line.strip().split(' ')[-1]) for line in lines[1:] if '=' in line.strip()]
+
+    scores = [
+        float(line.strip().split(" ")[-1]) for line in lines[1:] if "=" in line.strip()
+    ]
     return np.mean(scores)
 
 
 def get_rotamer_evals(dir, rotamer_eval_file="rotamer_evals.txt"):
-    with open(os.path.join(dir, rotamer_eval_file), 'r') as f:
+    with open(os.path.join(dir, rotamer_eval_file), "r") as f:
         lines = f.readlines()
-        
-    eval_lines = [line.strip() for line in lines if '[eval]' in line.strip()]
-    evals = [line.split('=>')[-1].strip() for line in eval_lines]
-    
+
+    eval_lines = [line.strip() for line in lines if "[eval]" in line.strip()]
+    evals = [line.split("=>")[-1].strip() for line in eval_lines]
+
     rotamer_evals = {
-        'num_residues': len(evals),
-        'outliers': evals.count('OUTLIER'),
-        'allowed': evals.count('Allowed'),
-        'favored': evals.count('Favored'),
+        "num_residues": len(evals),
+        "outliers": evals.count("OUTLIER"),
+        "allowed": evals.count("Allowed"),
+        "favored": evals.count("Favored"),
     }
-    
+
     return rotamer_evals
 
 
 def get_packing_stats(dir, stats_file="packing_stats.pkl"):
-    with open(os.path.join(dir, stats_file), 'rb') as f:
+    with open(os.path.join(dir, stats_file), "rb") as f:
         stats = pickle.load(f)
-        
+
     return stats
 
 
@@ -215,7 +229,7 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
                 recursive_dict_append(d1[key], d2[key])
             else:
                 d2[key].append(d1[key])
-                
+
         return d2
 
     def leaf_list_clone(d1, d2):
@@ -225,9 +239,9 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
                 leaf_list_clone(d1[key], d2[key])
             else:
                 d2[key] = []
-                
+
         return d2
-    
+
     def leaf_mean_clone(d):
         d2 = {}
         for key in d:
@@ -237,9 +251,9 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
                 d2[key] = np.mean(d[key], axis=0)
             else:
                 d2[key] = np.mean(d[key])
-        
+
         return d2
-        
+
     def leaf_std_clone(d):
         d2 = {}
         for key in d:
@@ -249,28 +263,28 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
                 d2[key] = np.std(d[key], axis=0)
             else:
                 d2[key] = np.std(d[key])
-        
+
         return d2
-    
+
     total_stats = {}
     for subdir in subdirs:
         stats = get_packing_stats(os.path.join(dir, subdir), stats_file)
         if total_stats == {}:
             total_stats = leaf_list_clone(stats, total_stats)
-        
+
         total_stats = recursive_dict_append(stats, total_stats)
-        
+
     mean_stats = leaf_mean_clone(total_stats)
     std_stats = leaf_std_clone(total_stats)
 
     if no_clash:
         return (mean_stats, std_stats)
-    
+
     clashscores = []
     for subdir in subdirs:
         clashscores.append(get_mean_clashscore(os.path.join(dir, subdir)))
-    
+
     mean_clashscore = np.mean(clashscores)
     std_clashscore = np.std(clashscores)
-        
+
     return (mean_stats, std_stats), (mean_clashscore, std_clashscore)
