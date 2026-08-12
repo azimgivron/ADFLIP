@@ -8,6 +8,7 @@ from typing import List
 import numpy as np
 import prody
 import torch
+from torch import Tensor
 from Bio.Data import IUPACData
 from Bio.PDB import PDBIO, MMCIFParser, PDBParser, Select
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
@@ -155,30 +156,30 @@ class StructureData:
 
 @dataclasses.dataclass
 class BatchStructureData:
-    residue_token: np.ndarray
-    residue_index: np.ndarray
-    residue_atom_index: np.ndarray
-    occupancy: np.ndarray
-    bfactor: np.ndarray
-    batch_index: np.ndarray
-    chain_id: np.ndarray
-    position: np.ndarray
-    element_index: np.ndarray
-    mask_chain: np.ndarray
+    residue_token: np.ndarray | Tensor
+    residue_index: np.ndarray | Tensor
+    residue_atom_index: np.ndarray | Tensor
+    occupancy: np.ndarray | Tensor
+    bfactor: np.ndarray | Tensor
+    batch_index: np.ndarray | Tensor
+    chain_id: np.ndarray | Tensor
+    position: np.ndarray | Tensor
+    element_index: np.ndarray | Tensor
+    mask_chain: np.ndarray | Tensor
     # atom_name: np.ndarray
-    is_ion: np.ndarray
-    is_protein: np.ndarray
-    is_nucleotide: np.ndarray
-    is_center: np.ndarray
-    is_backbone: np.ndarray
-    backbone_mask: np.ndarray
-    not_pad_mask: np.ndarray
-    interact_non_protein_res: np.ndarray
-    interact_ion_res: np.ndarray
-    interact_nucleotide_res: np.ndarray
-    interact_molecule_res: np.ndarray
-    noisy_residue_token: np.ndarray
-    time_step: np.ndarray
+    is_ion: np.ndarray | Tensor
+    is_protein: np.ndarray | Tensor
+    is_nucleotide: np.ndarray | Tensor
+    is_center: np.ndarray | Tensor
+    is_backbone: np.ndarray | Tensor
+    backbone_mask: np.ndarray | Tensor
+    not_pad_mask: np.ndarray | Tensor
+    interact_non_protein_res: np.ndarray | Tensor
+    interact_ion_res: np.ndarray | Tensor
+    interact_nucleotide_res: np.ndarray | Tensor
+    interact_molecule_res: np.ndarray | Tensor
+    noisy_residue_token: np.ndarray | Tensor
+    time_step: np.ndarray | Tensor
 
     def __len__(self):
         return len(self.residue_token)
