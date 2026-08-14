@@ -47,7 +47,7 @@ class AtomEncoder(nn.Module):
         is_backbone: torch.Tensor
         not_pad_mask: torch.Tensor
         """
-        B, N = batch_dict["residue_token"].size()
+        # B, N = batch_dict["residue_token"].size()
         residue_emb = self.residue_emb(batch_dict["residue_index"])
         atom_emb = self.atom_emb(batch_dict["residue_atom_index"])
         chain_emb = self.chain_emb(batch_dict["chain_id"])

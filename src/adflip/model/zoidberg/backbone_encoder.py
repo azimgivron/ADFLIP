@@ -1228,7 +1228,7 @@ class BackboneEncoder(nn.Module):
         padded_residue_token, padded_residue_mask = to_dense_batch(
             residue_token, batch_idx, batch_size=batch_size
         )
-        B, N = padded_residue_token.size()
+        # B, N = padded_residue_token.size()
         input_features = dense_input(
             batch_dict,
             number_ligand_atom=self.number_ligand_atom,
