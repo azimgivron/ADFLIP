@@ -1,8 +1,9 @@
-from __future__ import print_function
+from __future__ import annotations, print_function
 
 import itertools
 import math
 import sys
+from typing import Any, Optional, Tuple
 
 import numpy as np
 import torch
@@ -11,26 +12,59 @@ import torch.nn.functional as F
 
 
 class PositionWiseFeedForward(torch.nn.Module):
-    def __init__(self, num_hidden, num_ff):
+    """Implement the position wise feed forward component."""
+
+    def __init__(self, num_hidden: int, num_ff: int) -> None:
+        """Initialize the PositionWiseFeedForward.
+
+        Args:
+            num_hidden: Number of hidden.
+            num_ff: Number of ff.
+        """
         super(PositionWiseFeedForward, self).__init__()
         self.W_in = torch.nn.Linear(num_hidden, num_ff, bias=True)
         self.W_out = torch.nn.Linear(num_ff, num_hidden, bias=True)
         self.act = torch.nn.GELU()
 
-    def forward(self, h_V):
+    def forward(self, h_V: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            h_V: H v value.
+
+        Returns:
+            Computed tensor values.
+        """
         h = self.act(self.W_in(h_V))
         h = self.W_out(h)
         return h
 
 
 class PositionalEncodings(torch.nn.Module):
-    def __init__(self, num_embeddings, max_relative_feature=32):
+    """Implement the positional encodings component."""
+
+    def __init__(self, num_embeddings: int, max_relative_feature: int = 32) -> None:
+        """Initialize the PositionalEncodings.
+
+        Args:
+            num_embeddings: Number of embeddings.
+            max_relative_feature: Max relative feature value.
+        """
         super(PositionalEncodings, self).__init__()
         self.num_embeddings = num_embeddings
         self.max_relative_feature = max_relative_feature
         self.linear = torch.nn.Linear(2 * max_relative_feature + 1 + 1, num_embeddings)
 
-    def forward(self, offset, mask):
+    def forward(self, offset: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            offset: Offset value.
+            mask: Boolean mask for mask.
+
+        Returns:
+            Computed tensor values.
+        """
         d = torch.clip(
             offset + self.max_relative_feature, 0, 2 * self.max_relative_feature
         ) * mask + (1 - mask) * (2 * self.max_relative_feature + 1)
@@ -40,15 +74,27 @@ class PositionalEncodings(torch.nn.Module):
 
 
 class EncLayer(torch.nn.Module):
+    """Implement the enc layer component."""
+
     def __init__(
         self,
-        num_hidden,
-        num_in,
-        dropout=0.1,
-        num_heads=None,
-        scale=30,
-        time_embedder=None,
-    ):
+        num_hidden: int,
+        num_in: int,
+        dropout: float = 0.1,
+        num_heads: Optional[int] = None,
+        scale: int = 30,
+        time_embedder: Optional[nn.Module] = None,
+    ) -> None:
+        """Initialize the EncLayer.
+
+        Args:
+            num_hidden: Number of hidden.
+            num_in: Number of in.
+            dropout: Dropout value.
+            num_heads: Number of heads.
+            scale: Scale value.
+            time_embedder: Time embedder value.
+        """
         super(EncLayer, self).__init__()
         self.num_hidden = num_hidden
         self.num_in = num_in
@@ -74,9 +120,29 @@ class EncLayer(torch.nn.Module):
             )
 
     def forward(
-        self, h_V, h_V_atom, h_E, E_idx, mask_V=None, mask_attend=None, time=None
-    ):
-        """Parallel computation of full transformer layer"""
+        self,
+        h_V: torch.Tensor,
+        h_V_atom: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: torch.Tensor,
+        mask_V: Optional[torch.Tensor] = None,
+        mask_attend: Optional[torch.Tensor] = None,
+        time: Optional[torch.Tensor] = None,
+    ) -> Tuple[Any, ...]:
+        """Parallel computation of full transformer layer
+
+        Args:
+            h_V: H v value.
+            h_V_atom: H v atom value.
+            h_E: H e value.
+            E_idx: E idx value.
+            mask_V: Boolean mask for mask V.
+            mask_attend: Boolean mask for mask attend.
+            time: Time value.
+
+        Returns:
+            Computed result values.
+        """
 
         h_EV = cat_neighbors_nodes(h_V, h_E, E_idx)
         h_EV_atom = cat_neighbors_nodes(h_V_atom.clone(), h_E, E_idx)
@@ -109,16 +175,34 @@ class EncLayer(torch.nn.Module):
 
 
 # The following gather functions
-def gather_edges(edges, neighbor_idx):
+def gather_edges(edges: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
     # Features [B,N,N,C] at Neighbor indices [B,N,K] => Neighbor features [B,N,K,C]
+    """Execute the gather edges operation.
+
+    Args:
+        edges: Edges value.
+        neighbor_idx: Neighbor idx value.
+
+    Returns:
+        Result of the gather edges operation.
+    """
     neighbors = neighbor_idx.unsqueeze(-1).expand(-1, -1, -1, edges.size(-1))
     edge_features = torch.gather(edges, 2, neighbors)
     return edge_features
 
 
-def gather_nodes(nodes, neighbor_idx):
+def gather_nodes(nodes: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
     # Features [B,N,C] at Neighbor indices [B,N,K] => [B,N,K,C]
     # Flatten and expand indices per batch [B,N,K] => [B,NK] => [B,NK,C]
+    """Execute the gather nodes operation.
+
+    Args:
+        nodes: Nodes value.
+        neighbor_idx: Neighbor idx value.
+
+    Returns:
+        Result of the gather nodes operation.
+    """
     neighbors_flat = neighbor_idx.reshape((neighbor_idx.shape[0], -1))
     neighbors_flat = neighbors_flat.unsqueeze(-1).expand(-1, -1, nodes.size(2))
     # Gather and re-pack
@@ -127,19 +211,49 @@ def gather_nodes(nodes, neighbor_idx):
     return neighbor_features
 
 
-def gather_nodes_t(nodes, neighbor_idx):
+def gather_nodes_t(nodes: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
     # Features [B,N,C] at Neighbor index [B,K] => Neighbor features[B,K,C]
+    """Execute the gather nodes t operation.
+
+    Args:
+        nodes: Nodes value.
+        neighbor_idx: Neighbor idx value.
+
+    Returns:
+        Result of the gather nodes t operation.
+    """
     idx_flat = neighbor_idx.unsqueeze(-1).expand(-1, -1, nodes.size(2))
     neighbor_features = torch.gather(nodes, 1, idx_flat)
     return neighbor_features
 
 
-def cat_neighbors_nodes(h_nodes, h_neighbors, E_idx):
+def cat_neighbors_nodes(
+    h_nodes: torch.Tensor, h_neighbors: torch.Tensor, E_idx: torch.Tensor
+) -> torch.Tensor:
+    """Execute the cat neighbors nodes operation.
+
+    Args:
+        h_nodes: H nodes value.
+        h_neighbors: H neighbors value.
+        E_idx: E idx value.
+
+    Returns:
+        Result of the cat neighbors nodes operation.
+    """
     h_nodes = gather_nodes(h_nodes, E_idx)
     h_nn = torch.cat([h_neighbors, h_nodes], -1)
     return h_nn
 
 
-def modulate(x, shift, scale):
+def modulate(x: torch.Tensor, shift: torch.Tensor, scale: float) -> torch.Tensor:
+    """Execute the modulate operation.
 
+    Args:
+        x: Input tensor.
+        shift: Shift value.
+        scale: Scale value.
+
+    Returns:
+        Computed tensor values.
+    """
     return x * (1 + scale) + shift

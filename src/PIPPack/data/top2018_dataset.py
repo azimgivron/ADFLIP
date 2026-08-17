@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import glob
 import json
@@ -5,7 +7,7 @@ import logging
 import os
 import random
 from functools import partial
-from typing import *
+from typing import Any, Callable, Dict, Iterator, Optional, Sequence, Union
 
 import numpy as np
 import torch
@@ -27,7 +29,7 @@ except:
     from PIPPack.utils.utils import dir_size, download_file, extract
 
 
-log = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class Top2018Dataset(Dataset):
@@ -47,7 +49,7 @@ class Top2018Dataset(Dataset):
 
     # Only includes latest repo versions (as of 04/2023)
     # Previous versions may be structured slightly differently
-    top2018_versions = {
+    TOP2018_VERSIONS = {
         "full": {
             "2.0": {
                 "metadata_url": "https://zenodo.org/record/5773255/files/top2018_metadata_full_filtered.csv",
@@ -75,6 +77,14 @@ class Top2018Dataset(Dataset):
         version: str,
         transform: Optional[Callable] = None,
     ) -> None:
+        """Initialize the Top2018Dataset.
+
+        Args:
+            path: Path value.
+            filter_level: Filter level value.
+            version: Version value.
+            transform: Transform value.
+        """
         super().__init__()
 
         self.path = os.path.expanduser(path)
@@ -92,13 +102,14 @@ class Top2018Dataset(Dataset):
 
     def download(self) -> None:
         # Create path for data
+        """Download the required data."""
         os.makedirs(self.path, exist_ok=True)
 
         # Download and verify data
-        log.info(
+        LOGGER.info(
             f"Downloading and verifying Top2018 {self.filter_level} v{self.version} data!"
         )
-        version_info = self.top2018_versions[self.filter_level][self.version]
+        version_info = self.TOP2018_VERSIONS[self.filter_level][self.version]
         self.metadata_file = download_file(
             version_info["metadata_url"], self.path, md5=version_info["metadata_md5"]
         )
@@ -117,6 +128,11 @@ class Top2018Dataset(Dataset):
 
     def metadata_to_protein_info(self) -> Sequence[Dict[str, Union[str, int, float]]]:
         # Read metadata csv
+        """Execute the metadata to protein info operation.
+
+        Returns:
+            Computed result items.
+        """
         with open(self.metadata_file, "r") as f:
             lines = [line.split(",") for line in f.readlines()]
 
@@ -142,6 +158,11 @@ class Top2018Dataset(Dataset):
 
     def get_cluster_to_id_mapping(self) -> Dict[str, Dict[int, Sequence[int]]]:
         # Map each cluster id to each protein for each sequence identity level
+        """Return cluster to id mapping.
+
+        Returns:
+            Computed result mapping.
+        """
         clusters = {
             "95pc": {},
             "90pc": {},
@@ -166,6 +187,11 @@ class Top2018Dataset(Dataset):
 
     def get_id_to_index_mapping(self) -> Dict[str, int]:
         # Map each protein id to its corresponding data idx
+        """Return id to index mapping.
+
+        Returns:
+            Computed result mapping.
+        """
         protein_id_to_index = {}
         for idx, pdb in enumerate(self.pdb_files):
             pdb_id = os.path.basename(pdb)[:6]
@@ -175,12 +201,25 @@ class Top2018Dataset(Dataset):
         return protein_id_to_index
 
     def __len__(self) -> int:
+        """Return the number of contained items.
+
+        Returns:
+            Computed integer value.
+        """
         return len(self.pdb_files)
 
     def __getitem__(
         self, index: int
     ) -> Dict[str, Union[str, int, float, torch.Tensor]]:
         # Grab the appropriate protein and load its info
+        """Return an item selected by index.
+
+        Args:
+            index: Index value.
+
+        Returns:
+            Computed tensor values.
+        """
         pdb_file = self.pdb_files[index]
         pdb_id = os.path.basename(pdb_file)[:6]
         pdb_id = pdb_id[:4].upper() + pdb_id[4:]
@@ -203,6 +242,16 @@ class Top2018Dataset(Dataset):
         subcluster_idx: Optional[int] = None,
     ) -> int:
         # Get cluster info for specified seq_id
+        """Execute the idx from cluster operation.
+
+        Args:
+            seq_id: Seq id value.
+            cluster_id: Cluster id value.
+            subcluster_idx: Subcluster idx value.
+
+        Returns:
+            Computed integer value.
+        """
         cluster_dict = self.clusters_to_protein_id[seq_id]
 
         # Randomly select a cluster, if not provided.
@@ -223,6 +272,12 @@ class Top2018Dataset(Dataset):
         self, seq_id: str, cluster_subset: Sequence[int]
     ) -> None:
         # Determine which proteins should be extracted based on specified clusters
+        """Execute the prune from cluster split operation.
+
+        Args:
+            seq_id: Seq id value.
+            cluster_subset: Cluster subset value.
+        """
         subset_ids = []
         for cluster in cluster_subset:
             subset_ids.extend(self.clusters_to_protein_id[seq_id].get(cluster, []))
@@ -247,6 +302,11 @@ class Top2018Dataset(Dataset):
 
     def _prune_from_removal_list(self, removal_list: Sequence[str]) -> None:
         # Extract subset of protein ids
+        """Execute the prune from removal list operation.
+
+        Args:
+            removal_list: Removal list value.
+        """
         subset_protein_ids = [
             protein_id
             for protein_id in self.protein_id_to_index
@@ -282,6 +342,11 @@ class Top2018Dataset(Dataset):
     def _to_fasta(self, out_file: str) -> None:
 
         # Loop over all pdb files in dataset and write to fasta file.
+        """Execute the to fasta operation.
+
+        Args:
+            out_file: Path for out.
+        """
         with open(out_file, "w") as f:
             for pdb_file in self.pdb_files:
 
@@ -297,19 +362,38 @@ class Top2018Dataset(Dataset):
 
 
 class Top2018Sampler(Sampler):
+    """Implement the top2018 sampler component."""
+
     def __init__(
         self, dataset: Top2018Dataset, seq_id: str = "40pc", shuffle: bool = True
     ) -> None:
+        """Initialize the Top2018Sampler.
+
+        Args:
+            dataset: Dataset value.
+            seq_id: Seq id value.
+            shuffle: Shuffle value.
+        """
         super().__init__(None)
         self.dataset = dataset
         self.seq_id = seq_id
         self.shuffle = shuffle
 
     def __len__(self) -> int:
+        """Return the number of contained items.
+
+        Returns:
+            Computed integer value.
+        """
         return len(self.dataset.clusters_to_protein_id[self.seq_id])
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         # Create full batch by selecting one chain from each cluster
+        """Iterate over the contained items.
+
+        Returns:
+            Result of the iter operation.
+        """
         batch = [
             self.dataset.idx_from_cluster(self.seq_id, cluster_id)
             for cluster_id in self.dataset.clusters_to_protein_id[self.seq_id]
@@ -323,12 +407,24 @@ class Top2018Sampler(Sampler):
 
 
 def transform_structure(
-    protein,
-    n_chi_bin=72,
-    crop_size=None,
-    random_truncate=True,
-    sc_d_mask_from_seq=False,
-):
+    protein: Any,
+    n_chi_bin: int = 72,
+    crop_size: Optional[int] = None,
+    random_truncate: bool = True,
+    sc_d_mask_from_seq: bool = False,
+) -> Any:
+    """Transform structure.
+
+    Args:
+        protein: Protein value.
+        n_chi_bin: Number of chi bin.
+        crop_size: Crop size value.
+        random_truncate: Random truncate value.
+        sc_d_mask_from_seq: Boolean mask for sc d from seq.
+
+    Returns:
+        Result of the transform structure operation.
+    """
     if crop_size is not None:
         if protein["aatype"].shape[0] > crop_size:
             # Determine starting index for truncation.
@@ -376,7 +472,7 @@ def transform_structure(
         protein["atom_positions"], protein["aatype"]
     )
     if sc_d_mask_from_seq:
-        SC_D_mask = np.array(rc.chi_mask_atom14, dtype=np.float32)[protein["aatype"]]
+        SC_D_mask = np.array(rc.CHI_MASK_ATOM14, dtype=np.float32)[protein["aatype"]]
     SC_D_BF_mask = Featurizer.chi_mask_from_b_factors(
         protein["aatype"], protein["b_factors"]
     )
@@ -437,12 +533,29 @@ def transform_structure(
     return protein_data
 
 
-def collate_fn(protein_batch):
+def collate_fn(protein_batch: Any) -> Any:
 
     # Padding function
+    """Collate fn.
+
+    Args:
+        protein_batch: Protein batch value.
+
+    Returns:
+        Result of the collate fn operation.
+    """
     max_size = max([protein.num_nodes for protein in protein_batch])
 
-    def _maybe_pad(protein, attr):
+    def _maybe_pad(protein: Any, attr: Any) -> Any:
+        """Execute the maybe pad operation.
+
+        Args:
+            protein: Protein value.
+            attr: Attr value.
+
+        Returns:
+            Result of the maybe pad operation.
+        """
         attr_tensor = getattr(protein, attr)
         return F.pad(
             attr_tensor,
@@ -507,6 +620,8 @@ def collate_fn(protein_batch):
 
 
 class Top2018DataModule(LightningDataModule):
+    """Implement the top2018 data module component."""
+
     def __init__(
         self,
         data_dir: str,
@@ -525,6 +640,25 @@ class Top2018DataModule(LightningDataModule):
         pin_memory: bool = False,
         num_chains: int = -1,
     ) -> None:
+        """Initialize the Top2018DataModule.
+
+        Args:
+            data_dir: Path for data.
+            filter_level: Filter level value.
+            version: Version value.
+            seq_id: Seq id value.
+            transform: Transform value.
+            n_chi_bins: Number of chi bins.
+            crop_size: Crop size value.
+            random_truncate: Random truncate value.
+            removal_list_file: Path for removal list.
+            split_prefix: Split prefix value.
+            data_split: Data split value.
+            batch_size: Batch size value.
+            num_workers: Number of workers.
+            pin_memory: Pin memory value.
+            num_chains: Number of chains.
+        """
         super().__init__()
 
         # Save init params
@@ -544,6 +678,11 @@ class Top2018DataModule(LightningDataModule):
 
     @property
     def data_dir(self) -> str:
+        """Execute the data dir operation.
+
+        Returns:
+            Result of the data dir operation.
+        """
         return os.path.expanduser(
             os.path.join(
                 self.hparams.data_dir,
@@ -553,12 +692,18 @@ class Top2018DataModule(LightningDataModule):
 
     @property
     def split_file(self) -> str:
+        """Execute the split file operation.
+
+        Returns:
+            Result of the split file operation.
+        """
         return os.path.join(
             self.data_dir, f"{self.hparams.split_prefix}_{self.hparams.seq_id}.json"
         )
 
     def prepare_data(self) -> None:
-        log.info(
+        """Prepare data."""
+        LOGGER.info(
             f"Preparing Top2018 {self.hparams.filter_level} v{self.hparams.version} data!"
         )
         Top2018Dataset(
@@ -569,7 +714,12 @@ class Top2018DataModule(LightningDataModule):
 
     def setup(self, stage: str) -> None:
         # Load full dataset
-        log.info(
+        """Execute the setup operation.
+
+        Args:
+            stage: Stage value.
+        """
+        LOGGER.info(
             f"Setting up Top2018 {self.hparams.filter_level} v{self.hparams.version} data!"
         )
         top2018 = Top2018Dataset(
@@ -650,6 +800,14 @@ class Top2018DataModule(LightningDataModule):
 
     def _create_cluster_split(self, top2018_ds: Top2018Dataset) -> str:
         # Get all cluster ids
+        """Create cluster split.
+
+        Args:
+            top2018_ds: Top2018 ds value.
+
+        Returns:
+            Result of the create cluster split operation.
+        """
         cluster_dict = top2018_ds.clusters_to_protein_id[self.hparams.seq_id]
         cluster_ids = list(cluster_dict)
 
@@ -672,10 +830,15 @@ class Top2018DataModule(LightningDataModule):
         with open(self.split_file, "w") as f:
             json.dump(data_splits, f)
 
-        log.info(f"Created new Top2018 split: {self.split_file}")
+        LOGGER.info(f"Created new Top2018 split: {self.split_file}")
         return self.split_file
 
     def train_dataloader(self) -> DataLoader:
+        """Execute the train dataloader operation.
+
+        Returns:
+            Result of the train dataloader operation.
+        """
         return DataLoader(
             self.data_train,
             sampler=Top2018Sampler(self.data_train, self.hparams.seq_id, shuffle=True),
@@ -686,6 +849,11 @@ class Top2018DataModule(LightningDataModule):
         )
 
     def val_dataloader(self) -> DataLoader:
+        """Execute the val dataloader operation.
+
+        Returns:
+            Result of the val dataloader operation.
+        """
         return DataLoader(
             self.data_val,
             collate_fn=collate_fn,
@@ -695,6 +863,11 @@ class Top2018DataModule(LightningDataModule):
         )
 
     def test_dataloader(self) -> DataLoader:
+        """Execute the test dataloader operation.
+
+        Returns:
+            Result of the test dataloader operation.
+        """
         return DataLoader(
             self.data_test,
             collate_fn=collate_fn,

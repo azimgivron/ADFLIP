@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -11,7 +15,13 @@ class DistanceEmbedding(nn.Module):
     Inspired by AF3 Atom attention encoder
     """
 
-    def __init__(self, dim: int, max_dist_ang: float = 32.0):
+    def __init__(self, dim: int, max_dist_ang: float = 32.0) -> None:
+        """Initialize the DistanceEmbedding.
+
+        Args:
+            dim: Dimension for dim.
+            max_dist_ang: Max dist ang value.
+        """
         super().__init__()
         self.dim = dim
         self.distance_embedding = nn.Embedding(dim, embedding_dim=dim)
@@ -24,7 +34,15 @@ class DistanceEmbedding(nn.Module):
             ),
         )
 
-    def forward(self, distance_matrix):
+    def forward(self, distance_matrix: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            distance_matrix: Distance matrix value.
+
+        Returns:
+            Computed tensor values.
+        """
         distance_matrix = distance_matrix[..., None]
         distance_idx = torch.argmin(
             torch.abs(distance_matrix - self.distance_bins[None, None]), dim=-1
@@ -34,9 +52,19 @@ class DistanceEmbedding(nn.Module):
 
 
 class LocalAtomAttention(nn.Module):
+    """Implement the local atom attention component."""
+
     def __init__(
         self, dim: int, num_heads: int, k: int, max_distance_ang: float = 32.0
-    ):
+    ) -> None:
+        """Initialize the LocalAtomAttention.
+
+        Args:
+            dim: Dimension for dim.
+            num_heads: Number of heads.
+            k: K value.
+            max_distance_ang: Max distance ang value.
+        """
         super().__init__()
         self.num_heads = num_heads
         self.dim = dim
@@ -48,7 +76,24 @@ class LocalAtomAttention(nn.Module):
         self.affinity_pred = nn.Linear(dim, self.num_heads)
         self.fc = TransitionBlock(dim)
 
-    def forward(self, x, batch, positions, not_pad_mask):
+    def forward(
+        self,
+        x: torch.Tensor,
+        batch: Any,
+        positions: torch.Tensor,
+        not_pad_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+            batch: Batch value.
+            positions: Positions value.
+            not_pad_mask: Boolean mask for not pad.
+
+        Returns:
+            Computed tensor values.
+        """
         B, N, _ = positions.shape
         positions = positions.reshape(B * N, -1)
         knn_graph_indices = knn_graph(
@@ -86,15 +131,3 @@ class LocalAtomAttention(nn.Module):
         updated_values = updated_values.reshape(B, N, self.dim)
         x = self.fc(updated_values) + x
         return x
-
-
-if __name__ == "__main__":
-    B, N, k, d = 2, 128, 8, 128
-    x = torch.randn(B, N, d)
-    batch = torch.cat([i * torch.ones(N) for i in range(B)]).long()
-    positions = torch.randn(B, N, 3)
-    not_pad_mask = torch.ones(B, N)
-    model = LocalAtomAttention(d, 4, 8)
-    out = model(x, batch, positions, not_pad_mask)
-    print(out.shape)
-    print(out)

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any, Tuple
+
 import torch
 import torch.nn as nn
 
@@ -9,22 +13,29 @@ except:
     from PIPPack.data.rigid_utils import Rigid, Rotation
 
 
-def make_atom14_masks(S):
-    """Construct denser atom positions (14 dimensions instead of 37)."""
+def make_atom14_masks(S: torch.Tensor) -> Tuple[Any, ...]:
+    """Construct denser atom positions (14 dimensions instead of 37).
+
+    Args:
+        S: Input tensor.
+
+    Returns:
+        Computed result values.
+    """
     restype_atom14_to_atom37 = []
     restype_atom37_to_atom14 = []
     restype_atom14_mask = []
 
-    for rt in rc.restypes:
-        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+    for rt in rc.RESTYPES:
+        atom_names = rc.RESTYPE_NAME_TO_ATOM14_NAMES[rc.RESTYPE_1TO3[rt]]
         restype_atom14_to_atom37.append(
-            [(rc.atom_order[name] if name else 0) for name in atom_names]
+            [(rc.ATOM_ORDER[name] if name else 0) for name in atom_names]
         )
         atom_name_to_idx14 = {name: i for i, name in enumerate(atom_names)}
         restype_atom37_to_atom14.append(
             [
                 (atom_name_to_idx14[name] if name in atom_name_to_idx14 else 0)
-                for name in rc.atom_types
+                for name in rc.ATOM_TYPES
             ]
         )
 
@@ -62,11 +73,11 @@ def make_atom14_masks(S):
 
     # create the corresponding mask
     restype_atom37_mask = torch.zeros([21, 37], dtype=torch.float32, device=S.device)
-    for restype, restype_letter in enumerate(rc.restypes):
-        restype_name = rc.restype_1to3[restype_letter]
-        atom_names = rc.residue_atoms[restype_name]
+    for restype, restype_letter in enumerate(rc.RESTYPES):
+        restype_name = rc.RESTYPE_1TO3[restype_letter]
+        atom_names = rc.RESIDUE_ATOMS[restype_name]
         for atom_name in atom_names:
-            atom_type = rc.atom_order[atom_name]
+            atom_type = rc.ATOM_ORDER[atom_name]
             restype_atom37_mask[restype, atom_type] = 1
 
     residx_atom37_mask = restype_atom37_mask[protein_aatype]
@@ -84,7 +95,16 @@ def atom14_to_atom37(
     residx_atom37_to_atom14: torch.Tensor,  # (B, N, 37)
     atom37_atom_exists: torch.Tensor,  # (B, N, 37)
 ) -> torch.Tensor:  # (B, N, 37, 3)
-    """Convert atom14 to atom37 representation."""
+    """Convert atom14 to atom37 representation.
+
+    Args:
+        atom14_data: Atom14 data value.
+        residx_atom37_to_atom14: Residx atom37 to atom14 value.
+        atom37_atom_exists: Atom37 atom exists value.
+
+    Returns:
+        Computed tensor values.
+    """
 
     atom37_data = torch.gather(
         atom14_data,
@@ -97,8 +117,21 @@ def atom14_to_atom37(
     return atom37_data
 
 
-def get_bb_frames(N: torch.Tensor, CA: torch.Tensor, C: torch.Tensor, fixed=True):
+def get_bb_frames(
+    N: torch.Tensor, CA: torch.Tensor, C: torch.Tensor, fixed: bool = True
+) -> Any:
     # N, CA, C = [*, L, 3]
+    """Return bb frames.
+
+    Args:
+        N: N value.
+        CA: Ca value.
+        C: C value.
+        fixed: Fixed value.
+
+    Returns:
+        Result of the get bb frames operation.
+    """
     return Rigid.from_3_points(N, CA, C, fixed=fixed)
 
 
@@ -107,8 +140,19 @@ def torsion_angles_to_frames(
     alpha: torch.Tensor,
     aatype: torch.Tensor,
     rrgdf: torch.Tensor,
-):
+) -> Any:
     # [*, N, 8, 4, 4]
+    """Execute the torsion angles to frames operation.
+
+    Args:
+        r: Input tensor.
+        alpha: Alpha value.
+        aatype: Aatype value.
+        rrgdf: Rrgdf value.
+
+    Returns:
+        Result of the torsion angles to frames operation.
+    """
     default_4x4 = rrgdf[aatype, ...]
 
     # [*, N, 8] transformations, i.e.
@@ -169,12 +213,25 @@ def torsion_angles_to_frames(
 def frames_and_literature_positions_to_atom14_pos(
     r: Rigid,
     aatype: torch.Tensor,
-    default_frames,
-    group_idx,
-    atom_mask,
-    lit_positions,
-):
+    default_frames: torch.Tensor,
+    group_idx: int,
+    atom_mask: torch.Tensor,
+    lit_positions: torch.Tensor,
+) -> Any:
     # [*, N, 14]
+    """Execute the frames and literature positions to atom14 pos operation.
+
+    Args:
+        r: Input tensor.
+        aatype: Aatype value.
+        default_frames: Default frames value.
+        group_idx: Group idx value.
+        atom_mask: Boolean mask for atom.
+        lit_positions: Lit positions value.
+
+    Returns:
+        Result of the frames and literature positions to atom14 pos operation.
+    """
     group_mask = group_idx[aatype, ...]
 
     # [*, N, 14, 8]

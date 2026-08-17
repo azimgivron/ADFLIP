@@ -1,25 +1,37 @@
+from __future__ import annotations
+
+from typing import Dict
+
 import torch
 import torch.nn as nn
 
-from adflip.data.all_atom_parse import num_element_tokens, num_residue_tokens
+from adflip.data.all_atom_parse import NUM_ELEMENT_TOKENS, NUM_RESIDUE_TOKENS
 from adflip.model.zoidberg.transition_block import TransitionBlock
 from adflip.model.zoidberg.utils import FourierEmbedding
 
 
 class AtomEncoder(nn.Module):
+    """Implement the atom encoder component."""
+
     def __init__(
         self,
         dim: int,
         hidden_dim: int,
-    ):
+    ) -> None:
+        """Initialize the AtomEncoder.
+
+        Args:
+            dim: Dimension for dim.
+            hidden_dim: Dimension for hidden.
+        """
         super().__init__()
         self.dim = dim
         self.residue_emb = FourierEmbedding(hidden_dim)
         self.atom_emb = FourierEmbedding(hidden_dim)
         self.chain_emb = FourierEmbedding(hidden_dim)
         self.timestep_emb = FourierEmbedding(hidden_dim)
-        self.residue_token_emb = nn.Embedding(num_residue_tokens, hidden_dim)
-        self.element_token_emb = nn.Embedding(num_element_tokens, hidden_dim)
+        self.residue_token_emb = nn.Embedding(NUM_RESIDUE_TOKENS, hidden_dim)
+        self.element_token_emb = nn.Embedding(NUM_ELEMENT_TOKENS, hidden_dim)
         self.is_ion_emb = nn.Embedding(2, hidden_dim)
         self.is_protein_emb = nn.Embedding(2, hidden_dim)
         self.is_nucleotide_emb = nn.Embedding(2, hidden_dim)
@@ -27,7 +39,7 @@ class AtomEncoder(nn.Module):
 
         self.proj = TransitionBlock(dim, input_dim=9 * hidden_dim)
 
-    def forward(self, batch_dict: dict):
+    def forward(self, batch_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Batch dict looks like
         residue_token: torch.Tensor
         residue_index: torch.Tensor
@@ -46,6 +58,12 @@ class AtomEncoder(nn.Module):
         is_center: torch.Tensor
         is_backbone: torch.Tensor
         not_pad_mask: torch.Tensor
+
+        Args:
+            batch_dict: Batch dict value.
+
+        Returns:
+            Computed tensor values.
         """
         # B, N = batch_dict["residue_token"].size()
         residue_emb = self.residue_emb(batch_dict["residue_index"])

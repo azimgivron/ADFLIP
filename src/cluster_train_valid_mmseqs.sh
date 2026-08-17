@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
 
 CLUSTER_DIR="data/cluster/mmseqs"
-TMP_DIR="/tmp/mmseqs_tmp"
+TMP_DIR="${TMPDIR:-/tmp}/adflip_mmseqs"
+THREADS="${THREADS:-32}"
 
 run_mmseqs() {
   local fasta="$1" prefix="$2"
@@ -19,7 +25,7 @@ run_mmseqs() {
   echo "[mmseqs] clustering ${prefix}"
   mmseqs createdb "${fasta}" "${db}"
   mmseqs linclust "${db}" "${clu}" "${TMP_DIR}_${prefix}" \
-    --min-seq-id 0.3 -c 0.8 --cov-mode 1 --threads 32
+    --min-seq-id 0.3 -c 0.8 --cov-mode 1 --threads "${THREADS}"
   mmseqs createtsv "${db}" "${db}" "${clu}" "${tsv}"
 }
 

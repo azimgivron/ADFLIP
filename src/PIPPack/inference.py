@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 import glob
 import logging
@@ -7,10 +9,11 @@ import pickle
 import hydra
 import numpy as np
 import torch
+import torch.nn as nn
 from omegaconf import DictConfig
 
 torch.cuda.empty_cache()
-from typing import *
+from typing import Any, Dict, List, Sequence
 
 import lightning
 
@@ -31,10 +34,22 @@ except:
     from PIPPack.utils.train_utils import load_checkpoint
 
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
-def replace_protein_sequence(protein, protein_name, new_seqs):
+def replace_protein_sequence(
+    protein: Any, protein_name: str, new_seqs: Sequence[Sequence[str]]
+) -> List[Any]:
+    """Execute the replace protein sequence operation.
+
+    Args:
+        protein: Protein value.
+        protein_name: Protein name value.
+        new_seqs: New seqs value.
+
+    Returns:
+        Computed result items.
+    """
     proteins = []
 
     for i, seqs in enumerate(new_seqs):
@@ -48,14 +63,14 @@ def replace_protein_sequence(protein, protein_name, new_seqs):
         new_protein = copy.deepcopy(protein)
 
         aatype = np.array(
-            [rc.restype_order[res] for res in new_seqs[0][0] if res]
+            [rc.RESTYPE_ORDER[res] for res in new_seqs[0][0] if res]
         ).astype(np.int64)
         new_protein["aatype"] = aatype
 
         # Rebuild atom mask
         atom_mask = []
         for res in "".join(seqs):
-            res_atoms = rc.restype_name_to_atom14_names[rc.restype_1to3[res]]
+            res_atoms = rc.RESTYPE_NAME_TO_ATOM14_NAMES[rc.RESTYPE_1TO3[res]]
             res_mask = [1 if atom != "" else 0 for atom in res_atoms]
             atom_mask.append(res_mask)
         new_protein["atom_mask"] = np.array(atom_mask).astype(np.float32)
@@ -67,9 +82,29 @@ def replace_protein_sequence(protein, protein_name, new_seqs):
 
 @torch.no_grad()
 def sample_epoch(
-    model, batch, temperature, device, n_recycle=0, resample=False, resample_args={}
-):
+    model: nn.Module,
+    batch: Any,
+    temperature: float,
+    device: torch.device,
+    n_recycle: int = 0,
+    resample: bool = False,
+    resample_args: Dict[str, Any] = {},
+) -> Dict[str, Any]:
     # Sampling epoch
+    """Sample epoch.
+
+    Args:
+        model: Model value.
+        batch: Batch value.
+        temperature: Temperature value.
+        device: Device used for tensor operations.
+        n_recycle: Number of recycle.
+        resample: Resample value.
+        resample_args: Resample args value.
+
+    Returns:
+        Computed result mapping.
+    """
     model.eval()
 
     # Move to device
@@ -109,9 +144,17 @@ def sample_epoch(
     return results
 
 
-def pdbs_from_prediction(sample_results) -> Sequence[str]:
+def pdbs_from_prediction(sample_results: Dict[str, torch.Tensor]) -> Sequence[str]:
 
     # Get the protein components.
+    """Execute the pdbs from prediction operation.
+
+    Args:
+        sample_results: Sample results value.
+
+    Returns:
+        Computed result items.
+    """
     S = sample_results["S"]
     residue_index = sample_results["og_residue_index"]
     chain_index = sample_results["chain_index"]
@@ -162,6 +205,11 @@ def pdbs_from_prediction(sample_results) -> Sequence[str]:
 def main(cfg: DictConfig) -> None:
 
     # Get the config used when running experiment
+    """Run the command-line entry point.
+
+    Args:
+        cfg: Configuration values.
+    """
     with open(
         os.path.join(
             cfg.inference.weights_path, f"{cfg.inference.model_name}_config.pickle"
@@ -172,7 +220,7 @@ def main(cfg: DictConfig) -> None:
 
     # Set up RNG and device
     seed = lightning.seed_everything(cfg.inference.seed)
-    logger.info(f"Using seed={seed} for RNG.")
+    LOGGER.info(f"Using seed={seed} for RNG.")
     device = torch.device(
         "cuda:0"
         if (torch.cuda.is_available() and not cfg.inference.force_cpu)
@@ -279,7 +327,3 @@ def main(cfg: DictConfig) -> None:
             print("Finished packing:", pdb_out)
             with open(pdb_out, "w") as f:
                 f.write(protein_string)
-
-
-if __name__ == "__main__":
-    main()

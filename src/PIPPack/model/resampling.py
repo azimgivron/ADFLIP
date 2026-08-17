@@ -1,4 +1,6 @@
-from typing import Dict
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
 
 import torch
 import torch.nn.functional as F
@@ -24,15 +26,26 @@ def local_interresidue_sc_clash_loss(
     """Computes several checks for structural violations resulting from sidechains.
 
     Note: This ignores intra-residue clashes and backbone-backbone clashes.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        clash_overlap_tolerance: Clash overlap tolerance value.
+        distance_threshold: Distance threshold value.
+        basis_atom: Basis atom value.
+        eps: Eps value.
+
+    Returns:
+        Computed tensor values.
     """
 
     # Get needed components from batch.
     aatype = batch["S"].squeeze().clone()
     restype_atom14_to_atom37 = []
-    for rt in rc.restypes:
-        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+    for rt in rc.RESTYPES:
+        atom_names = rc.RESTYPE_NAME_TO_ATOM14_NAMES[rc.RESTYPE_1TO3[rt]]
         restype_atom14_to_atom37.append(
-            [(rc.atom_order[name] if name else 0) for name in atom_names]
+            [(rc.ATOM_ORDER[name] if name else 0) for name in atom_names]
         )
     restype_atom14_to_atom37.append([0] * 14)
     restype_atom14_to_atom37 = torch.tensor(
@@ -47,7 +60,7 @@ def local_interresidue_sc_clash_loss(
     # Compute the Van der Waals radius for every atom
     # (the first letter of the atom name is the element type).
     # Shape: (N, 14).
-    atomtype_radius = [rc.van_der_waals_radius[name[0]] for name in rc.atom_types]
+    atomtype_radius = [rc.VAN_DER_WAALS_RADIUS[name[0]] for name in rc.ATOM_TYPES]
     atomtype_radius = atom14_pred_positions.new_tensor(atomtype_radius)
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
 
@@ -55,9 +68,9 @@ def local_interresidue_sc_clash_loss(
     # shape (N, 3)
     if basis_atom == "CB":
         basis_atom_idx = 4 * torch.ones_like(aatype)
-        basis_atom_idx[aatype == rc.restype_order["G"]] = 1
+        basis_atom_idx[aatype == rc.RESTYPE_ORDER["G"]] = 1
     else:
-        basis_atom_idx = rc.atom_order[basis_atom] * torch.ones_like(aatype)
+        basis_atom_idx = rc.ATOM_ORDER[basis_atom] * torch.ones_like(aatype)
     basis_xyz = torch.gather(
         atom14_pred_positions,
         1,
@@ -110,12 +123,12 @@ def local_interresidue_sc_clash_loss(
     dists_mask = dists_mask * (1.0 - bb_bb_mask)
 
     # Disulfide bridge between two cysteines is no clash.
-    cys = rc.restype_name_to_atom14_names["CYS"]
+    cys = rc.RESTYPE_NAME_TO_ATOM14_NAMES["CYS"]
     cys_sg_idx = cys.index("SG")
     cys_sg_idx = aatype.new_tensor(cys_sg_idx)
     cys_sg_one_hot = F.one_hot(cys_sg_idx, num_classes=14)
-    cys_res1 = aatype[valid_pairs[0]] == rc.restype_order["C"]
-    cys_res2 = aatype[valid_pairs[1]] == rc.restype_order["C"]
+    cys_res1 = aatype[valid_pairs[0]] == rc.RESTYPE_ORDER["C"]
+    cys_res2 = aatype[valid_pairs[1]] == rc.RESTYPE_ORDER["C"]
     cys_mask = torch.logical_and(cys_res1, cys_res2)
     disulfide_bonds = cys_mask[..., None, None] * (
         cys_sg_one_hot[None, :, None] * cys_sg_one_hot[None, None, :]
@@ -144,14 +157,14 @@ def local_interresidue_sc_clash_loss(
     # C_i - Cg_i+1, C_i - Cd_i+1, O_i - Cd_i+1, and Ca_i - Cd_i+1.
     ca_one_hot = F.one_hot(residue_index.new_tensor(1), num_classes=14).type(fp_type)
     o_one_hot = F.one_hot(residue_index.new_tensor(3), num_classes=14).type(fp_type)
-    pro = rc.restype_name_to_atom14_names["PRO"]
+    pro = rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"]
     pro_cg_idx = pro.index("CG")
     pro_cg_idx = residue_index.new_tensor(pro_cg_idx)
     pro_cg_one_hot = F.one_hot(pro_cg_idx, num_classes=14).type(fp_type)
     pro_cd_idx = pro.index("CD")
     pro_cd_idx = residue_index.new_tensor(pro_cd_idx)
     pro_cd_one_hot = F.one_hot(pro_cd_idx, num_classes=14).type(fp_type)
-    pro_res2 = aatype[valid_pairs[1]] == rc.restype_order["P"]
+    pro_res2 = aatype[valid_pairs[1]] == rc.RESTYPE_ORDER["P"]
     pro_neighbor_mask = pro_res2 * neighbor_mask  # [N_pairs]
     c_pro_cg_dists = (
         pro_neighbor_mask[..., None, None]
@@ -222,11 +235,23 @@ def local_interresidue_sc_clash_loss(
 
 
 def find_clashing_residues(
-    batch, atom14_pred_positions, clash_overlap_tolerance=0.6
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    clash_overlap_tolerance: float = 0.6,
 ) -> torch.Tensor:
     # NOTE: This assumes that batch has only 1 protein in it.
 
     # Find the clashing atoms and energy
+    """Find clashing residues.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        clash_overlap_tolerance: Clash overlap tolerance value.
+
+    Returns:
+        Computed tensor values.
+    """
     clash_info = local_interresidue_sc_clash_loss(
         batch, atom14_pred_positions, clash_overlap_tolerance
     )
@@ -240,27 +265,37 @@ def find_clashing_residues(
 
 
 def find_unclosed_prolines(
-    batch, atom14_pred_positions, tolerance_factor=12
+    batch: Any, atom14_pred_positions: torch.Tensor, tolerance_factor: int = 12
 ) -> torch.Tensor:
     # Mean and standard deviation of the CD-N bond length in proline
     # (from stereo_chemical_props.txt)
+    """Find unclosed prolines.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        tolerance_factor: Tolerance factor value.
+
+    Returns:
+        Computed tensor values.
+    """
     pro_CD_N_mean = 1.474
     pro_CD_N_std = 0.014
 
     # Find proline residues
-    pro_mask = batch["S"].squeeze() == rc.restype_order["P"]
+    pro_mask = batch["S"].squeeze() == rc.RESTYPE_ORDER["P"]
 
     # Get the CD-N bond lengths
     pro_N = (
         pro_mask[..., None]
         * atom14_pred_positions.squeeze()[
-            ..., rc.restype_name_to_atom14_names["PRO"].index("N"), :
+            ..., rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"].index("N"), :
         ]
     )
     pro_CD = (
         pro_mask[..., None]
         * atom14_pred_positions.squeeze()[
-            ..., rc.restype_name_to_atom14_names["PRO"].index("CD"), :
+            ..., rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"].index("CD"), :
         ]
     )
     pro_CD_N = torch.norm(pro_CD - pro_N, dim=-1)
@@ -276,11 +311,23 @@ def find_unclosed_prolines(
 
 
 def get_proline_chi_bins(
-    batch, atom14_pred_positions, proline_indices=None
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    proline_indices: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
+    """Return proline chi bins.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        proline_indices: Proline indices value.
+
+    Returns:
+        Computed tensor values.
+    """
     if proline_indices is None:
         # Find proline residues
-        pro_mask = batch["S"].squeeze() == rc.restype_order["P"]
+        pro_mask = batch["S"].squeeze() == rc.RESTYPE_ORDER["P"]
 
         # Get the proline chi values and bins
         SC_D, _ = Featurizer.calc_sc_dihedrals(
@@ -298,9 +345,23 @@ def get_proline_chi_bins(
 
 
 def resample_clashes(
-    batch, atom14_pred_positions, clashing_indices, temperature=0.0
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    clashing_indices: torch.Tensor,
+    temperature: float = 0.0,
 ) -> torch.Tensor:
     # Get X, S, BB_D, and chi_logits of clashing residues
+    """Execute the resample clashes operation.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        clashing_indices: Clashing indices value.
+        temperature: Temperature value.
+
+    Returns:
+        Computed tensor values.
+    """
     resampled_X = batch["X"].squeeze()[clashing_indices]
     resampled_S = batch["S"].squeeze()[clashing_indices]
     resampled_BB_D = batch["BB_D"].squeeze()[clashing_indices]
@@ -343,7 +404,7 @@ def resample_clashes(
 
     # Construct resampled atom14 coordinates
     aatype_chi_mask = torch.tensor(
-        rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
+        rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
     )[resampled_S]
     chi_pred = aatype_chi_mask * chi_pred
     resampled_atom14_xyz = get_atom14_coords(
@@ -358,9 +419,25 @@ def resample_clashes(
 
 
 def resample_prolines(
-    batch, atom14_pred_positions, proline_indices, temperature=0.0, max_attempts=100
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    proline_indices: torch.Tensor,
+    temperature: float = 0.0,
+    max_attempts: int = 100,
 ) -> torch.Tensor:
     # Get X, S, BB_D, and chi_logits of unclosed proline residues
+    """Execute the resample prolines operation.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        proline_indices: Proline indices value.
+        temperature: Temperature value.
+        max_attempts: Max attempts value.
+
+    Returns:
+        Computed tensor values.
+    """
     resampled_X = batch["X"].squeeze()[proline_indices]
     resampled_S = batch["S"].squeeze()[proline_indices]
     resampled_BB_D = batch["BB_D"].squeeze()[proline_indices]
@@ -425,8 +502,8 @@ def resample_prolines(
                     ) * torch.rand(chi_bin.shape, device=chi_bin.device)
                 chi_pred = pred_chi_bin + bin_sample_update
                 aatype_chi_mask = torch.tensor(
-                    rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
-                )[rc.restype_order["P"]]
+                    rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
+                )[rc.RESTYPE_ORDER["P"]]
                 chi_pred = aatype_chi_mask * chi_pred
                 resampled_atom14_xyz = get_atom14_coords(
                     resampled_X[pro_i],
@@ -463,9 +540,23 @@ def resample_prolines(
 
 
 def wiggle_prolines(
-    batch, atom14_pred_positions, proline_indices, wiggle_factor=3
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    proline_indices: torch.Tensor,
+    wiggle_factor: int = 3,
 ) -> torch.Tensor:
     # Get X, S, BB_D, and chi_logits of proline indices
+    """Execute the wiggle prolines operation.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        proline_indices: Proline indices value.
+        wiggle_factor: Wiggle factor value.
+
+    Returns:
+        Computed tensor values.
+    """
     resampled_X = batch["X"].squeeze()[proline_indices]
     resampled_S = batch["S"].squeeze()[proline_indices]
     resampled_BB_D = batch["BB_D"].squeeze()[proline_indices]
@@ -539,8 +630,8 @@ def wiggle_prolines(
                 )
             chi_pred = pred_chi_bin + bin_sample_update
             aatype_chi_mask = torch.tensor(
-                rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
-            )[rc.restype_order["P"]]
+                rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
+            )[rc.RESTYPE_ORDER["P"]]
             chi_pred = aatype_chi_mask * chi_pred
             resampled_atom14_xyz = get_atom14_coords(
                 resampled_X[pro_i], resampled_S[pro_i], resampled_BB_D[pro_i], chi_pred
@@ -567,16 +658,31 @@ def wiggle_prolines(
 
 
 def resample_loop(
-    batch,
-    atom14_pred_positions,
-    sample_temp=0.5,
-    clash_overlap_tolerance=0.6,
-    pro_tolerance_factor=12,
-    max_iters=10,
-    metropolis_temp=5e-6,
-    verbose=0,
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    sample_temp: float = 0.5,
+    clash_overlap_tolerance: float = 0.6,
+    pro_tolerance_factor: int = 12,
+    max_iters: int = 10,
+    metropolis_temp: float = 5e-6,
+    verbose: int = 0,
 ) -> torch.Tensor:
     # Find clashing residues and energy
+    """Execute the resample loop operation.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        sample_temp: Sample temp value.
+        clash_overlap_tolerance: Clash overlap tolerance value.
+        pro_tolerance_factor: Pro tolerance factor value.
+        max_iters: Max iters value.
+        metropolis_temp: Metropolis temp value.
+        verbose: Verbose value.
+
+    Returns:
+        Computed tensor values.
+    """
     clashing_residues, clash_energy = find_clashing_residues(
         batch, atom14_pred_positions, clash_overlap_tolerance
     )

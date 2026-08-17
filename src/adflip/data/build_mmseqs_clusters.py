@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import pickle
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, OrderedDict, Tuple
 
 
 def load_mmseqs_tsv(path: Path) -> OrderedDict:
+    """Load mmseqs tsv.
+
+    Args:
+        path: Path value.
+
+    Returns:
+        Result of the load mmseqs tsv operation.
+    """
     clusters = OrderedDict()
     with path.open() as f:
         for line in f:
@@ -25,7 +35,18 @@ def build_clusters(
     valid_tsv: Path,
     out_dir: Path,
     test_tsv: Optional[Path] = None,
-):
+) -> Tuple[Any, ...]:
+    """Build clusters.
+
+    Args:
+        train_tsv: Train tsv value.
+        valid_tsv: Valid tsv value.
+        out_dir: Path for out.
+        test_tsv: Test tsv value.
+
+    Returns:
+        Computed result values.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cluster_to_pdb_chain = {}
@@ -90,7 +111,8 @@ def build_clusters(
     return summary_path, overlap
 
 
-def main():
+def main() -> None:
+    """Run the command-line entry point."""
     parser = argparse.ArgumentParser(
         description="Convert mmseqs cluster TSVs into train/valid/test cluster files."
     )
@@ -130,7 +152,3 @@ def main():
     print(f"Summary: {summary_path}")
     if overlap:
         print(f"Warning: {len(overlap)} overlapping chain IDs between train/valid.")
-
-
-if __name__ == "__main__":
-    main()

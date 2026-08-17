@@ -1,23 +1,48 @@
+from __future__ import annotations
+
+from typing import Any, Optional, Tuple
+
 import torch
 import torch.nn as nn
 
 
 class FourierEmbedding(nn.Module):
-    def __init__(self, dim):
-        """
-        AlphaFold3's Fourier Embedding
+    """Implement the fourier embedding component."""
+
+    def __init__(self, dim: int) -> None:
+        """AlphaFold3's Fourier Embedding
+
+        Args:
+            dim: Dimension for dim.
         """
         super().__init__()
         self.dim = dim
         self.register_buffer("weight", torch.randn(dim))
         self.register_buffer("bias", torch.randn(dim))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Computed tensor values.
+        """
         return torch.cos(2 * torch.pi * (x[..., None] * self.weight + self.bias))
 
 
 class AdaptiveLayerNorm(nn.Module):
-    def __init__(self, dim: int, condition_dim: int = None, eps: float = 1e-6):
+    """Implement the adaptive layer norm component."""
+
+    def __init__(self, dim: int, condition_dim: int = None, eps: float = 1e-6) -> None:
+        """Initialize the AdaptiveLayerNorm.
+
+        Args:
+            dim: Dimension for dim.
+            condition_dim: Dimension for condition.
+            eps: Eps value.
+        """
         super().__init__()
         if condition_dim is None:
             condition_dim = dim
@@ -29,7 +54,16 @@ class AdaptiveLayerNorm(nn.Module):
 
         nn.init.constant_(self.linear_sig.bias, -2.0)
 
-    def forward(self, x, condition):
+    def forward(self, x: torch.Tensor, condition: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+            condition: Condition value.
+
+        Returns:
+            Computed tensor values.
+        """
         x = self.ln1(x)
         y = self.ln2(condition)
         b = torch.sigmoid(self.linear_sig(y)) * x + self.linear_nb(y)
@@ -37,14 +71,25 @@ class AdaptiveLayerNorm(nn.Module):
 
 
 class FrameAveraging(nn.Module):
+    """Implement the frame averaging component."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize the FrameAveraging."""
         super().__init__()
         self.ops = torch.tensor(
             [[i, j, k] for i in [-1, 1] for j in [-1, 1] for k in [-1, 1]]
         )
 
-    def create_frame(self, X, mask):
+    def create_frame(self, X: torch.Tensor, mask: torch.Tensor) -> Tuple[Any, ...]:
+        """Create frame.
+
+        Args:
+            X: Input tensor.
+            mask: Boolean mask for mask.
+
+        Returns:
+            Computed result values.
+        """
         device = X.device
         mask = mask.unsqueeze(-1)
         center = (X * mask).sum(dim=1) / mask.sum(dim=1)
@@ -61,14 +106,42 @@ class FrameAveraging(nn.Module):
         h = h.view(X.size(0) * 8, X.size(1), 3)
         return h, F_ops.detach(), center
 
-    def invert_frame(self, X, mask, F_ops, center):
+    def invert_frame(
+        self,
+        X: torch.Tensor,
+        mask: torch.Tensor,
+        F_ops: torch.Tensor,
+        center: torch.Tensor,
+    ) -> torch.Tensor:
+        """Execute the invert frame operation.
+
+        Args:
+            X: Input tensor.
+            mask: Boolean mask for mask.
+            F_ops: F ops value.
+            center: Center value.
+
+        Returns:
+            Computed tensor values.
+        """
         X = torch.einsum("boij,bopj->bopi", F_ops, X)
         X = X.mean(dim=1)  # frame averaging
         X = X + center.unsqueeze(1)
         return X * mask.unsqueeze(-1)
 
 
-def transform_residue_index(residue_index, atom_mask):
+def transform_residue_index(
+    residue_index: torch.Tensor, atom_mask: torch.Tensor
+) -> Any:
+    """Transform residue index.
+
+    Args:
+        residue_index: Residue index value.
+        atom_mask: Boolean mask for atom.
+
+    Returns:
+        Result of the transform residue index operation.
+    """
     B, N = residue_index.shape
     device = residue_index.device
 
@@ -91,7 +164,19 @@ def transform_residue_index(residue_index, atom_mask):
     return transformed_index
 
 
-def transform_atom_index(atom_index, atom_mask, batch_indices):
+def transform_atom_index(
+    atom_index: torch.Tensor, atom_mask: torch.Tensor, batch_indices: torch.Tensor
+) -> Any:
+    """Transform atom index.
+
+    Args:
+        atom_index: Atom index value.
+        atom_mask: Boolean mask for atom.
+        batch_indices: Batch indices value.
+
+    Returns:
+        Result of the transform atom index operation.
+    """
     B, N = atom_index.shape
     device = atom_index.device
 
@@ -116,7 +201,19 @@ def transform_atom_index(atom_index, atom_mask, batch_indices):
     return linear_index
 
 
-def gather_residue_average_from_atoms(x, residue_index, atom_mask):
+def gather_residue_average_from_atoms(
+    x: torch.Tensor, residue_index: torch.Tensor, atom_mask: torch.Tensor
+) -> Tuple[Any, ...]:
+    """Execute the gather residue average from atoms operation.
+
+    Args:
+        x: Input tensor.
+        residue_index: Residue index value.
+        atom_mask: Boolean mask for atom.
+
+    Returns:
+        Computed result values.
+    """
     B, N, D = x.shape
     device = x.device
     # Apply atom mask to x
@@ -158,7 +255,19 @@ def gather_residue_average_from_atoms(x, residue_index, atom_mask):
     return residue_avg, residue_mask
 
 
-def scatter_residue_feature_over_atoms(residue_avg, residue_index, atom_mask):
+def scatter_residue_feature_over_atoms(
+    residue_avg: torch.Tensor, residue_index: torch.Tensor, atom_mask: torch.Tensor
+) -> torch.Tensor:
+    """Execute the scatter residue feature over atoms operation.
+
+    Args:
+        residue_avg: Residue avg value.
+        residue_index: Residue index value.
+        atom_mask: Boolean mask for atom.
+
+    Returns:
+        Result of the scatter residue feature over atoms operation.
+    """
     B, K, D = residue_avg.shape
     N = residue_index.shape[1]
     device = residue_avg.device
@@ -178,9 +287,14 @@ def scatter_residue_feature_over_atoms(residue_avg, residue_index, atom_mask):
     return x_reconstructed
 
 
-def find_first_padded(not_pad_mask):
-    """
-    Courtesy of Claude 3.5
+def find_first_padded(not_pad_mask: torch.Tensor) -> Any:
+    """Courtesy of Claude 3.5
+
+    Args:
+        not_pad_mask: Boolean mask for not pad.
+
+    Returns:
+        Result of the find first padded operation.
     """
     # Find the first False in each sequence
     first_padded = (~not_pad_mask).long().argmax(dim=1)
@@ -195,12 +309,28 @@ def find_first_padded(not_pad_mask):
 
 
 class StartEndPad(nn.Module):
-    def __init__(self, dim):
+    """Implement the start end pad component."""
+
+    def __init__(self, dim: int) -> None:
+        """Initialize the StartEndPad.
+
+        Args:
+            dim: Dimension for dim.
+        """
         super().__init__()
         self.start = nn.Parameter(torch.randn(dim))
         self.end = nn.Parameter(torch.randn(dim))
 
-    def forward(self, x, protein_mask):
+    def forward(self, x: torch.Tensor, protein_mask: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+            protein_mask: Boolean mask for protein.
+
+        Returns:
+            Computed tensor values.
+        """
         B, N, D = x.shape
         x = nn.functional.pad(x, (0, 0, 1, 1), value=0)  # shape: [B, N+1, D]
         protein_mask = nn.functional.pad(
@@ -214,16 +344,29 @@ class StartEndPad(nn.Module):
 
 # timm SwiGLU
 class SwiGLULayer(nn.Module):
+    """Implement the swi glulayer component."""
+
     def __init__(
         self,
-        in_features,
-        hidden_features=None,
-        out_features=None,
-        act_layer=nn.SiLU,
-        norm_layer=None,
-        bias=True,
-        drop=0.0,
-    ):
+        in_features: torch.Tensor,
+        hidden_features: Optional[int] = None,
+        out_features: Optional[int] = None,
+        act_layer: Any = nn.SiLU,
+        norm_layer: Optional[nn.Module] = None,
+        bias: bool = True,
+        drop: float = 0.0,
+    ) -> None:
+        """Initialize the SwiGLULayer.
+
+        Args:
+            in_features: In features value.
+            hidden_features: Hidden features value.
+            out_features: Out features value.
+            act_layer: Act layer value.
+            norm_layer: Norm layer value.
+            bias: Bias value.
+            drop: Drop value.
+        """
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -240,12 +383,21 @@ class SwiGLULayer(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
-    def init_weights(self):
+    def init_weights(self) -> None:
         # override init of fc1 w/ gate portion set to weight near zero, bias=1
+        """Execute the init weights operation."""
         nn.init.ones_(self.fc1_g.bias)
         nn.init.normal_(self.fc1_g.weight, std=1e-6)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Computed tensor values.
+        """
         x_gate = self.fc1_g(x)
         x = self.fc1_x(x)
         x = self.act(x_gate) * x

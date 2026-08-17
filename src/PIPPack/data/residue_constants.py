@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 from importlib import resources
+from typing import Any, Tuple
 
 import numpy as np
 
 #            0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19
-restypes = [
+RESTYPES = [
     "A",
     "R",
     "N",
@@ -25,11 +28,12 @@ restypes = [
     "Y",
     "V",
 ]
-restypes_with_x = restypes + ["X"]
-restype_order = {restype: i for i, restype in enumerate(restypes)}
-restype_num = len(restypes)  # := 20.
+RESTYPES_WITH_X = RESTYPES + ["X"]
+RESTYPE_ORDER = {restype: i for i, restype in enumerate(RESTYPES)}
+RESTYPE_NUM = len(RESTYPES)  # := 20.
+UNK_RESTYPE_INDEX = RESTYPE_NUM
 
-restype_1to3 = {
+RESTYPE_1TO3 = {
     "A": "ALA",
     "R": "ARG",
     "N": "ASN",
@@ -51,7 +55,7 @@ restype_1to3 = {
     "Y": "TYR",
     "V": "VAL",
 }
-restype_3to1 = {v: k for k, v in restype_1to3.items()}
+RESTYPE_3TO1 = {v: k for k, v in RESTYPE_1TO3.items()}
 
 # Atoms positions relative to the 8 rigid groups, defined by the pre-omega, phi,
 # psi and chi angles:
@@ -65,7 +69,7 @@ restype_3to1 = {v: k for k, v in restype_1to3.items()}
 # is defined such that the dihedral-angle-definiting atom (the last entry in
 # chi_angles_atoms above) is in the xy-plane (with a positive y-coordinate).
 # format: [atomname, group_idx, rel_position]
-rigid_group_atom_positions = {
+RIGID_GROUP_ATOM_POSITIONS = {
     "ALA": [
         ["N", 0, (-0.525, 1.363, 0.000)],
         ["CA", 0, (0.000, 0.000, 0.000)],
@@ -278,7 +282,7 @@ rigid_group_atom_positions = {
 }
 
 # A list of atoms (excluding hydrogen) for each AA type. PDB naming convention.
-residue_atoms = {
+RESIDUE_ATOMS = {
     "ALA": ["C", "CA", "CB", "N", "O"],
     "ARG": ["C", "CA", "CB", "CG", "CD", "CZ", "N", "NE", "O", "NH1", "NH2"],
     "ASP": ["C", "CA", "CB", "CG", "N", "O", "OD1", "OD2"],
@@ -317,7 +321,7 @@ residue_atoms = {
 }
 
 
-residue_atom_renaming_swaps = {
+RESIDUE_ATOM_RENAMING_SWAPS = {
     "PHE": [["CD1", "CD2"], ["CE1", "CE2"]],
     "TYR": [["CD1", "CD2"], ["CE1", "CE2"]],
     "ARG": [["NH1", "NH2"]],
@@ -326,7 +330,7 @@ residue_atom_renaming_swaps = {
 }
 
 
-residue_atom_pseudo_renaming_swaps = {
+RESIDUE_ATOM_PSEUDO_RENAMING_SWAPS = {
     "HIS": [["ND1", "CD2"], ["NE2", "CE1"]],
     "ASN": [["OD1", "ND2"]],
     "GLN": [["OE1", "NE2"]],
@@ -334,7 +338,7 @@ residue_atom_pseudo_renaming_swaps = {
 
 
 # Van der Waals radii [Angstroem] of the atoms (from Wikipedia)
-van_der_waals_radius = {
+VAN_DER_WAALS_RADIUS = {
     "C": 1.7,
     "N": 1.55,
     "O": 1.52,
@@ -342,7 +346,7 @@ van_der_waals_radius = {
 }
 
 # Sidechain bond lengths (from Rosetta database)
-sc_bond_lengths = {
+SC_BOND_LENGTHS = {
     "ARG": {
         ("CB", "CG"): 1.5204,
         ("CG", "CD"): 1.4854,
@@ -376,7 +380,7 @@ sc_bond_lengths = {
 
 # This mapping is used when we need to store atom data in a format that requires
 # fixed atom data size for every residue (e.g. a numpy array).
-atom_types = [
+ATOM_TYPES = [
     "N",
     "CA",
     "C",
@@ -415,13 +419,13 @@ atom_types = [
     "NZ",
     "OXT",
 ]
-atom_order = {atom_type: i for i, atom_type in enumerate(atom_types)}
-atom_type_num = len(atom_types)  # := 37.
+ATOM_ORDER = {atom_type: i for i, atom_type in enumerate(ATOM_TYPES)}
+ATOM_TYPE_NUM = len(ATOM_TYPES)  # := 37.
 
 # A compact atom encoding with 14 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-restype_name_to_atom14_names = {
+RESTYPE_NAME_TO_ATOM14_NAMES = {
     "ALA": ["N", "CA", "C", "O", "CB", "", "", "", "", "", "", "", "", ""],
     "ARG": [
         "N",
@@ -520,7 +524,7 @@ restype_name_to_atom14_names = {
     "UNK": ["", "", "", "", "", "", "", "", "", "", "", "", "", ""],
 }
 
-cg_atoms = {
+CG_ATOMS = {
     "ALA": [["C", "CA", "CB", "N"], ["C", "CA", "O"]],
     "ARG": [
         ["C", "CA", "CB", "N"],
@@ -577,7 +581,7 @@ cg_atoms = {
 # A compact atom encoding with 16 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-atom16 = [
+ATOM16 = [
     "N",
     "CA",
     "C",
@@ -595,7 +599,7 @@ atom16 = [
     "OE1",
     "OE2",
 ]
-restype_name_to_atom16_names = {
+RESTYPE_NAME_TO_ATOM16_NAMES = {
     "ASP": [
         "N",
         "CA",
@@ -657,7 +661,7 @@ restype_name_to_atom16_names = {
 # A compact atom encoding with 7 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-atom7 = [
+ATOM7 = [
     [0, 1, 2, 3, 1, 4, 5],
     [0, 1, 2, 3, 5, 6, 7],
     [0, 1, 2, 3, 6, 7, 8],
@@ -668,7 +672,7 @@ atom7 = [
 # A compact atom encoding with 8 columns
 # pylint: disable=line-too-long
 # pylint: disable=bad-whitespace
-atom8 = [
+ATOM8 = [
     [0, 1, 2, 3, 4, 1, 4, 5],
     [0, 1, 2, 3, 4, 5, 6, 7],
     [0, 1, 2, 3, 4, 6, 7, 8],
@@ -677,8 +681,19 @@ atom8 = [
 ]
 
 
-def _make_rigid_transformation_4x4(ex, ey, translation):
-    """Create a rigid 4x4 transformation matrix from two axes and transl."""
+def _make_rigid_transformation_4x4(
+    ex: np.ndarray, ey: np.ndarray, translation: np.ndarray
+) -> Any:
+    """Create a rigid 4x4 transformation matrix from two axes and transl.
+
+    Args:
+        ex: Ex value.
+        ey: Ey value.
+        translation: Translation value.
+
+    Returns:
+        Result of the make rigid transformation 4x4 operation.
+    """
     # Normalize ex.
     ex_normalized = ex / np.linalg.norm(ex)
 
@@ -693,7 +708,7 @@ def _make_rigid_transformation_4x4(ex, ey, translation):
     return m
 
 
-hbond_donor_atoms = [
+HBOND_DONOR_ATOMS = [
     "OG",
     "OG1",
     "NE2",
@@ -707,7 +722,7 @@ hbond_donor_atoms = [
     "OH",
     "N",
 ]
-hbond_acceptor_atoms = [
+HBOND_ACCEPTOR_ATOMS = [
     "ND1",
     "NE2",
     "OE1",
@@ -720,27 +735,32 @@ hbond_acceptor_atoms = [
     "O",
 ]
 
-hbond_donors = np.zeros(atom_type_num)
-hbond_acceptors = np.zeros(atom_type_num)
-for atom in hbond_donor_atoms:
-    hbond_donors[atom_order[atom]] = 1.0
-for atom in hbond_acceptor_atoms:
-    hbond_acceptors[atom_order[atom]] = 1.0
+HBOND_DONORS = np.zeros(ATOM_TYPE_NUM)
+HBOND_ACCEPTORS = np.zeros(ATOM_TYPE_NUM)
+for atom in HBOND_DONOR_ATOMS:
+    HBOND_DONORS[ATOM_ORDER[atom]] = 1.0
+for atom in HBOND_ACCEPTOR_ATOMS:
+    HBOND_ACCEPTORS[ATOM_ORDER[atom]] = 1.0
 
 
-def _get_restype_atom14_hbond_donors_and_acceptors():
+def _get_restype_atom14_hbond_donors_and_acceptors() -> Tuple[Any, ...]:
+    """Return restype atom14 hbond donors and acceptors.
+
+    Returns:
+        Computed result values.
+    """
     restype_hbond_donors = []
     restype_hbond_acceptors = []
-    for res_name in restypes:
-        res_name = restype_1to3[res_name]
+    for res_name in RESTYPES:
+        res_name = RESTYPE_1TO3[res_name]
 
         res_hbond_donors = [
-            1.0 if atom in hbond_donor_atoms else 0.0
-            for atom in restype_name_to_atom14_names[res_name]
+            1.0 if atom in HBOND_DONOR_ATOMS else 0.0
+            for atom in RESTYPE_NAME_TO_ATOM14_NAMES[res_name]
         ]
         res_hbond_acceptors = [
-            1.0 if atom in hbond_acceptor_atoms else 0.0
-            for atom in restype_name_to_atom14_names[res_name]
+            1.0 if atom in HBOND_ACCEPTOR_ATOMS else 0.0
+            for atom in RESTYPE_NAME_TO_ATOM14_NAMES[res_name]
         ]
 
         restype_hbond_donors.append(res_hbond_donors)
@@ -753,14 +773,14 @@ def _get_restype_atom14_hbond_donors_and_acceptors():
     return restype_hbond_donors, restype_hbond_acceptors
 
 
-restype_hbond_donors_atom14, restype_hbond_acceptors_atom14 = (
+RESTYPE_HBOND_DONORS_ATOM14, RESTYPE_HBOND_ACCEPTORS_ATOM14 = (
     _get_restype_atom14_hbond_donors_and_acceptors()
 )
 
 # Format: The list for each AA type contains chi1, chi2, chi3, chi4 in
 # this order (or a relevant subset from chi1 onwards). ALA and GLY don't have
 # chi angles so their chi angle lists are empty.
-chi_angles_atoms = {
+CHI_ANGLES_ATOMS = {
     "ALA": [],
     # Chi5 in arginine is always 0 +- 5 degrees, so ignore it.
     "ARG": [
@@ -808,7 +828,7 @@ chi_angles_atoms = {
 
 # If chi angles given in fixed-length array, this matrix determines how to mask
 # them for each AA type. The order is as per restype_order (see below).
-chi_angles_mask = [
+CHI_ANGLES_MASK = [
     [0.0, 0.0, 0.0, 0.0],  # ALA
     [1.0, 1.0, 1.0, 1.0],  # ARG
     [1.0, 1.0, 0.0, 0.0],  # ASN
@@ -833,7 +853,7 @@ chi_angles_mask = [
 
 # The following chi angles are pi periodic: they can be rotated by a multiple
 # of pi without affecting the structure.
-chi_pi_periodic = [
+CHI_PI_PERIODIC = [
     [0.0, 0.0, 0.0, 0.0],  # ALA
     [0.0, 0.0, 0.0, 0.0],  # ARG
     [0.0, 0.0, 0.0, 0.0],  # ASN
@@ -859,7 +879,7 @@ chi_pi_periodic = [
 
 # The following chi angles are pseudo pi periodic: due to experimental limitations,
 # atoms are sometimes ambiguous for HIS, ASN, GLN
-chi_pseudo_pi_periodic = [
+CHI_PSEUDO_PI_PERIODIC = [
     [0.0, 0.0, 0.0, 0.0],  # ALA
     [0.0, 0.0, 0.0, 0.0],  # ARG
     [0.0, 1.0, 0.0, 0.0],  # ASN
@@ -887,41 +907,41 @@ chi_pseudo_pi_periodic = [
 # and an array with (restype, atomtype, coord) for the atom positions
 # and compute affine transformation matrices (4,4) from one rigid group to the
 # previous group
-restype_atom37_to_rigid_group = np.zeros([21, 37], dtype=np.int64)
-restype_atom37_mask = np.zeros([21, 37], dtype=np.float32)
-restype_atom37_rigid_group_positions = np.zeros([21, 37, 3], dtype=np.float32)
-restype_atom14_to_rigid_group = np.zeros([21, 14], dtype=np.int64)
-restype_atom14_mask = np.zeros([21, 14], dtype=np.float32)
-restype_atom14_rigid_group_positions = np.zeros([21, 14, 3], dtype=np.float32)
-restype_rigid_group_default_frame = np.zeros([21, 8, 4, 4], dtype=np.float32)
+RESTYPE_ATOM37_TO_RIGID_GROUP = np.zeros([21, 37], dtype=np.int64)
+RESTYPE_ATOM37_MASK = np.zeros([21, 37], dtype=np.float32)
+RESTYPE_ATOM37_RIGID_GROUP_POSITIONS = np.zeros([21, 37, 3], dtype=np.float32)
+RESTYPE_ATOM14_TO_RIGID_GROUP = np.zeros([21, 14], dtype=np.int64)
+RESTYPE_ATOM14_MASK = np.zeros([21, 14], dtype=np.float32)
+RESTYPE_ATOM14_RIGID_GROUP_POSITIONS = np.zeros([21, 14, 3], dtype=np.float32)
+RESTYPE_RIGID_GROUP_DEFAULT_FRAME = np.zeros([21, 8, 4, 4], dtype=np.float32)
 
 
-def _make_rigid_group_constants():
+def _make_rigid_group_constants() -> None:
     """Fill the arrays above."""
-    for restype, restype_letter in enumerate(restypes):
-        resname = restype_1to3[restype_letter]
-        for atomname, group_idx, atom_position in rigid_group_atom_positions[resname]:
-            atomtype = atom_order[atomname]
-            restype_atom37_to_rigid_group[restype, atomtype] = group_idx
-            restype_atom37_mask[restype, atomtype] = 1
-            restype_atom37_rigid_group_positions[restype, atomtype, :] = atom_position
+    for restype, restype_letter in enumerate(RESTYPES):
+        resname = RESTYPE_1TO3[restype_letter]
+        for atomname, group_idx, atom_position in RIGID_GROUP_ATOM_POSITIONS[resname]:
+            atomtype = ATOM_ORDER[atomname]
+            RESTYPE_ATOM37_TO_RIGID_GROUP[restype, atomtype] = group_idx
+            RESTYPE_ATOM37_MASK[restype, atomtype] = 1
+            RESTYPE_ATOM37_RIGID_GROUP_POSITIONS[restype, atomtype, :] = atom_position
 
-            atom14idx = restype_name_to_atom14_names[resname].index(atomname)
-            restype_atom14_to_rigid_group[restype, atom14idx] = group_idx
-            restype_atom14_mask[restype, atom14idx] = 1
-            restype_atom14_rigid_group_positions[restype, atom14idx, :] = atom_position
+            atom14idx = RESTYPE_NAME_TO_ATOM14_NAMES[resname].index(atomname)
+            RESTYPE_ATOM14_TO_RIGID_GROUP[restype, atom14idx] = group_idx
+            RESTYPE_ATOM14_MASK[restype, atom14idx] = 1
+            RESTYPE_ATOM14_RIGID_GROUP_POSITIONS[restype, atom14idx, :] = atom_position
 
-    for restype, restype_letter in enumerate(restypes):
-        resname = restype_1to3[restype_letter]
+    for restype, restype_letter in enumerate(RESTYPES):
+        resname = RESTYPE_1TO3[restype_letter]
         atom_positions = {
-            name: np.array(pos) for name, _, pos in rigid_group_atom_positions[resname]
+            name: np.array(pos) for name, _, pos in RIGID_GROUP_ATOM_POSITIONS[resname]
         }
 
         # backbone to backbone is the identity transform
-        restype_rigid_group_default_frame[restype, 0, :, :] = np.eye(4)
+        RESTYPE_RIGID_GROUP_DEFAULT_FRAME[restype, 0, :, :] = np.eye(4)
 
         # pre-omega-frame to backbone (currently dummy identity matrix)
-        restype_rigid_group_default_frame[restype, 1, :, :] = np.eye(4)
+        RESTYPE_RIGID_GROUP_DEFAULT_FRAME[restype, 1, :, :] = np.eye(4)
 
         # phi-frame to backbone
         mat = _make_rigid_transformation_4x4(
@@ -929,7 +949,7 @@ def _make_rigid_group_constants():
             ey=np.array([1.0, 0.0, 0.0]),
             translation=atom_positions["N"],
         )
-        restype_rigid_group_default_frame[restype, 2, :, :] = mat
+        RESTYPE_RIGID_GROUP_DEFAULT_FRAME[restype, 2, :, :] = mat
 
         # psi-frame to backbone
         mat = _make_rigid_transformation_4x4(
@@ -937,18 +957,18 @@ def _make_rigid_group_constants():
             ey=atom_positions["CA"] - atom_positions["N"],
             translation=atom_positions["C"],
         )
-        restype_rigid_group_default_frame[restype, 3, :, :] = mat
+        RESTYPE_RIGID_GROUP_DEFAULT_FRAME[restype, 3, :, :] = mat
 
         # chi1-frame to backbone
-        if chi_angles_mask[restype][0]:
-            base_atom_names = chi_angles_atoms[resname][0]
+        if CHI_ANGLES_MASK[restype][0]:
+            base_atom_names = CHI_ANGLES_ATOMS[resname][0]
             base_atom_positions = [atom_positions[name] for name in base_atom_names]
             mat = _make_rigid_transformation_4x4(
                 ex=base_atom_positions[2] - base_atom_positions[1],
                 ey=base_atom_positions[0] - base_atom_positions[1],
                 translation=base_atom_positions[2],
             )
-            restype_rigid_group_default_frame[restype, 4, :, :] = mat
+            RESTYPE_RIGID_GROUP_DEFAULT_FRAME[restype, 4, :, :] = mat
 
         # chi2-frame to chi1-frame
         # chi3-frame to chi2-frame
@@ -956,27 +976,36 @@ def _make_rigid_group_constants():
         # luckily all rotation axes for the next frame start at (0,0,0) of the
         # previous frame
         for chi_idx in range(1, 4):
-            if chi_angles_mask[restype][chi_idx]:
-                axis_end_atom_name = chi_angles_atoms[resname][chi_idx][2]
+            if CHI_ANGLES_MASK[restype][chi_idx]:
+                axis_end_atom_name = CHI_ANGLES_ATOMS[resname][chi_idx][2]
                 axis_end_atom_position = atom_positions[axis_end_atom_name]
                 mat = _make_rigid_transformation_4x4(
                     ex=axis_end_atom_position,
                     ey=np.array([-1.0, 0.0, 0.0]),
                     translation=axis_end_atom_position,
                 )
-                restype_rigid_group_default_frame[restype, 4 + chi_idx, :, :] = mat
+                RESTYPE_RIGID_GROUP_DEFAULT_FRAME[restype, 4 + chi_idx, :, :] = mat
 
 
 _make_rigid_group_constants()
 
 
-stereo_chemical_props_path = resources.files(__package__).joinpath(
+STEREO_CHEMICAL_PROPS_PATH = resources.files(__package__).joinpath(
     "stereo_chemical_props.txt"
 )
 
 
-def restype_bonded_atoms(self_bonds=False, atom14=True):
-    stereo_chemical_props = stereo_chemical_props_path.read_text()
+def restype_bonded_atoms(self_bonds: bool = False, atom14: bool = True) -> Any:
+    """Execute the restype bonded atoms operation.
+
+    Args:
+        self_bonds: Self bonds value.
+        atom14: Atom14 value.
+
+    Returns:
+        Result of the restype bonded atoms operation.
+    """
+    stereo_chemical_props = STEREO_CHEMICAL_PROPS_PATH.read_text()
     lines_iter = iter(stereo_chemical_props.splitlines())
 
     # Determine bonded residues
@@ -993,39 +1022,47 @@ def restype_bonded_atoms(self_bonds=False, atom14=True):
         atom1, atom2 = bond.split("-")
 
         # Get residue and atom indices
-        res_idx = restype_order[restype_3to1[resname]]
+        res_idx = RESTYPE_ORDER[RESTYPE_3TO1[resname]]
         if atom14:
-            atom1_idx = restype_name_to_atom14_names[resname].index(atom1)
-            atom2_idx = restype_name_to_atom14_names[resname].index(atom2)
+            atom1_idx = RESTYPE_NAME_TO_ATOM14_NAMES[resname].index(atom1)
+            atom2_idx = RESTYPE_NAME_TO_ATOM14_NAMES[resname].index(atom2)
         else:
-            atom1_idx = atom_order[atom1]
-            atom2_idx = atom_order[atom2]
+            atom1_idx = ATOM_ORDER[atom1]
+            atom2_idx = ATOM_ORDER[atom2]
 
         # Symmetrically mark each bonded atom
         restype_bonded_atoms[res_idx, atom1_idx, atom2_idx] = 1.0
         restype_bonded_atoms[res_idx, atom2_idx, atom1_idx] = 1.0
 
     if self_bonds:
-        for restype in restypes:
-            res_idx = restype_order[restype]
-            for atom in atom_types:
+        for restype in RESTYPES:
+            res_idx = RESTYPE_ORDER[restype]
+            for atom in ATOM_TYPES:
                 if atom14:
-                    if atom not in residue_atoms[restype_1to3[restype]]:
+                    if atom not in RESIDUE_ATOMS[RESTYPE_1TO3[restype]]:
                         continue
-                    atom_idx = restype_name_to_atom14_names[restype].index(atom)
+                    atom_idx = RESTYPE_NAME_TO_ATOM14_NAMES[restype].index(atom)
                 else:
-                    atom_idx = atom_order[atom]
+                    atom_idx = ATOM_ORDER[atom]
                 restype_bonded_atoms[res_idx, atom_idx, atom_idx] = 1.0
 
     return restype_bonded_atoms
 
 
-def _get_chi_atom_indices_and_mask(use_atom14=True):
+def _get_chi_atom_indices_and_mask(use_atom14: bool = True) -> Tuple[Any, ...]:
+    """Return chi atom indices and mask.
+
+    Args:
+        use_atom14: Use atom14 value.
+
+    Returns:
+        Computed result values.
+    """
     chi_atom_indices = []
     chi_mask = []
-    for res_name in restypes:
-        res_name = restype_1to3[res_name]
-        res_chi_angles = chi_angles_atoms[res_name]
+    for res_name in RESTYPES:
+        res_name = RESTYPE_1TO3[res_name]
+        res_chi_angles = CHI_ANGLES_ATOMS[res_name]
 
         # Chi mask where 1 for existing chi angle and 0 for nonexistent chi angle
         chi_mask.append([1] * len(res_chi_angles) + [0] * (4 - len(res_chi_angles)))
@@ -1037,10 +1074,10 @@ def _get_chi_atom_indices_and_mask(use_atom14=True):
         # Indices of unique atoms
         if use_atom14:
             atom_indices = [
-                restype_name_to_atom14_names[res_name].index(atom) for atom in atoms
+                RESTYPE_NAME_TO_ATOM14_NAMES[res_name].index(atom) for atom in atoms
             ]
         else:
-            atom_indices = [atom_order[atom] for atom in atoms]
+            atom_indices = [ATOM_ORDER[atom] for atom in atoms]
 
         for _ in range(7 - len(atom_indices)):
             atom_indices.append(0)
@@ -1054,21 +1091,26 @@ def _get_chi_atom_indices_and_mask(use_atom14=True):
     return chi_atom_indices, chi_mask
 
 
-chi_atom_indices_atom14, chi_mask_atom14 = _get_chi_atom_indices_and_mask(
+CHI_ATOM_INDICES_ATOM14, CHI_MASK_ATOM14 = _get_chi_atom_indices_and_mask(
     use_atom14=True
 )
-chi_atom_indices_atom37, chi_mask_atom37 = _get_chi_atom_indices_and_mask(
+CHI_ATOM_INDICES_ATOM37, CHI_MASK_ATOM37 = _get_chi_atom_indices_and_mask(
     use_atom14=False
 )
 
 
-def _get_restype_atom_radius_atom14():
+def _get_restype_atom_radius_atom14() -> Any:
+    """Return restype atom radius atom14.
+
+    Returns:
+        Result of the get restype atom radius atom14 operation.
+    """
     restype_atom_radius = []
-    for res_name in restypes:
-        res_name = restype_1to3[res_name]
+    for res_name in RESTYPES:
+        res_name = RESTYPE_1TO3[res_name]
         atom_radius = [
-            van_der_waals_radius[name[0]]
-            for name in restype_name_to_atom14_names[res_name]
+            VAN_DER_WAALS_RADIUS[name[0]]
+            for name in RESTYPE_NAME_TO_ATOM14_NAMES[res_name]
             if name != ""
         ]
 
@@ -1083,4 +1125,4 @@ def _get_restype_atom_radius_atom14():
     return restype_atom_radius
 
 
-restype_atom_radius_atom14 = _get_restype_atom_radius_atom14()
+RESTYPE_ATOM_RADIUS_ATOM14 = _get_restype_atom_radius_atom14()

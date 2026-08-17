@@ -1,10 +1,19 @@
-from typing import Dict, Sequence
+from __future__ import annotations
+
+from typing import Dict, Sequence, Union
 
 import torch
+import torch.nn as nn
 
 
-def load_checkpoint(checkpoint_path, model):
+def load_checkpoint(checkpoint_path: str, model: nn.Module) -> None:
     # print('Loading checkpoint from {}'.format(checkpoint_path))
+    """Load checkpoint.
+
+    Args:
+        checkpoint_path: Path for checkpoint.
+        model: Model value.
+    """
     state_dicts = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     model.load_state_dict(state_dicts["model_state_dict"])
     # print('\tEpoch {}'.format(state_dicts['epoch']))
@@ -17,7 +26,7 @@ def determine_best_epoch_from_log(
     metric_weights: Sequence[float] = None,
     highest: bool = True,
     delimiter: str = "\t",
-) -> Dict[str, int | float]:
+) -> Dict[str, Union[int, float]]:
     """Reads the log file and determines which epoch is best based on the specified metrics and their weights.
 
     Args:
@@ -26,7 +35,7 @@ def determine_best_epoch_from_log(
         metric_weights (Sequence[float], optional): The weights used when combining multiple metrics. If not provided, an equal weighting
             is used.
         highest (bool, optional): Whether or not the best epoch should be considered the highest scoring or the lowest scoring. Defaults to True.
-        delimiter (str, optional): The delimiter used in the log file. Default is '\t'.
+        delimiter (str, optional): The delimiter used in the log file. Default is '     '.
 
     Raises:
         ValueError: Metrics must be a subset of the header columns found in the log file.

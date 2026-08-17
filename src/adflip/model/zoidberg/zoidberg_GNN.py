@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import math
+from typing import Any, Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -24,7 +27,13 @@ class TimestepEmbedder(nn.Module):
     Embeds scalar timesteps into vector representations.
     """
 
-    def __init__(self, hidden_size, frequency_embedding_size=256):
+    def __init__(self, hidden_size: int, frequency_embedding_size: int = 256) -> None:
+        """Initialize the TimestepEmbedder.
+
+        Args:
+            hidden_size: Hidden size value.
+            frequency_embedding_size: Frequency embedding size value.
+        """
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(frequency_embedding_size, hidden_size, bias=True),
@@ -34,14 +43,21 @@ class TimestepEmbedder(nn.Module):
         self.frequency_embedding_size = frequency_embedding_size
 
     @staticmethod
-    def timestep_embedding(t, dim, max_period=10000):
-        """
-        Create sinusoidal timestep embeddings.
+    def timestep_embedding(t: float, dim: int, max_period: int = 10000) -> torch.Tensor:
+        """Create sinusoidal timestep embeddings.
         :param t: a 1-D Tensor of N indices, one per batch element.
                           These may be fractional.
         :param dim: the dimension of the output.
         :param max_period: controls the minimum frequency of the embeddings.
         :return: an (N, D) Tensor of positional embeddings.
+
+        Args:
+            t: T value.
+            dim: Dimension for dim.
+            max_period: Max period value.
+
+        Returns:
+            Result of the timestep embedding operation.
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
         half = dim // 2
@@ -58,13 +74,23 @@ class TimestepEmbedder(nn.Module):
             )
         return embedding
 
-    def forward(self, t):
+    def forward(self, t: float) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            t: T value.
+
+        Returns:
+            Computed tensor values.
+        """
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
         t_emb = self.mlp(t_freq)
         return t_emb
 
 
 class Zoidberg_GNN(nn.Module):
+    """Implement the zoidberg gnn component."""
+
     def __init__(
         self,
         hidden_dim: int,
@@ -87,7 +113,31 @@ class Zoidberg_GNN(nn.Module):
         num_tfmr_layers: int = 0,
         mpnn_cutoff: bool = False,
         output_dim: int = 20,
-    ):
+    ) -> None:
+        """Initialize the Zoidberg GNN.
+
+        Args:
+            hidden_dim: Dimension for hidden.
+            encoder_hidden_dim: Dimension for encoder hidden.
+            num_blocks: Number of blocks.
+            num_heads: Number of heads.
+            k: K value.
+            num_positional_embeddings: Number of positional embeddings.
+            num_rbf: Number of rbf.
+            augment_eps: Augment eps value.
+            max_distance_ang: Max distance ang value.
+            number_ligand_atom: Number ligand atom value.
+            backbone_diheral: Backbone diheral value.
+            output_to_esm: Output to esm value.
+            denoiser: Denoiser value.
+            dropout: Dropout value.
+            update_atom: Update atom value.
+            num_decoder_blocks: Number of decoder blocks.
+            num_tfmr_heads: Number of tfmr heads.
+            num_tfmr_layers: Number of tfmr layers.
+            mpnn_cutoff: Mpnn cutoff value.
+            output_dim: Dimension for output.
+        """
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_blocks = num_blocks
@@ -161,8 +211,18 @@ class Zoidberg_GNN(nn.Module):
 
         self.layers["output"] = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, batch_dict: dict, timestep: torch.Tensor):
+    def forward(
+        self, batch_dict: Dict[str, torch.Tensor], timestep: torch.Tensor
+    ) -> Tuple[Any, ...]:
+        """Run the forward pass.
 
+        Args:
+            batch_dict: Batch dict value.
+            timestep: Timestep value.
+
+        Returns:
+            Computed result values.
+        """
         if self.augment_eps > 0.0 and self.training:
             batch_dict["position"] = (
                 batch_dict["position"]
@@ -323,30 +383,3 @@ class Zoidberg_GNN(nn.Module):
         logits = self.layers["output"](residue_x)
         flatten_logits = logits[protein_mask]
         return flatten_logits, embedding
-
-
-if __name__ == "__main__":
-    import torch
-
-    from adflip.data.all_atom_parse import get_example_batch
-
-    batch_dict = get_example_batch().__dict__
-    batch_dict = {
-        k: torch.from_numpy(v) for k, v in batch_dict.items() if k != "atom_name"
-    }
-    batch_dict = {
-        k: v.float() if v.dtype == torch.float64 else v for k, v in batch_dict.items()
-    }
-
-    model = Zoidberg_GNN(
-        hidden_dim=32,
-        encoder_hidden_dim=64,
-        num_blocks=3,
-        num_heads=4,
-        k=4,
-        denoiser=True,
-    )
-    model.eval()
-    time_step = torch.randn(batch_dict["batch_index"].size(0), 1)
-    logits, embedding = model(batch_dict, time_step)
-    print(logits.shape)

@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import glob
 import os
 import pickle
 import random
 from pathlib import Path
-from typing import Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -14,14 +16,23 @@ from scipy.spatial import cKDTree
 from tqdm import tqdm
 
 from adflip.data import all_atom_parse as aap
-from adflip.data.all_atom_parse import StructureData, residue_tokens
+from adflip.data.all_atom_parse import RESIDUE_TOKENS, StructureData
 from adflip.data.utils import TimeSortedCacheRBT
 
 Partition = Literal["train", "valid", "test"]
 
 
-def propagate_mask_vectorized(mask, index):
+def propagate_mask_vectorized(mask: Any, index: int) -> Any:
     # Ensure inputs are tensors
+    """Execute the propagate mask vectorized operation.
+
+    Args:
+        mask: Boolean mask for mask.
+        index: Index value.
+
+    Returns:
+        Result of the propagate mask vectorized operation.
+    """
     mask = torch.as_tensor(mask, dtype=torch.bool)
     index = torch.as_tensor(index)
 
@@ -38,8 +49,14 @@ def propagate_mask_vectorized(mask, index):
     return any_true[inverse_indices]
 
 
-def _check_bounds(indices: np.ndarray, length: int, name: str):
-    """Assert index bounds for array indexing."""
+def _check_bounds(indices: np.ndarray, length: int, name: str) -> None:
+    """Assert index bounds for array indexing.
+
+    Args:
+        indices: Indices value.
+        length: Length value.
+        name: Name value.
+    """
     if np.any(indices < 0) or np.any(indices >= length):
         raise IndexError(
             f"Index out of bounds for {name}: valid range [0, {length}), got indices min {indices.min()}, max {indices.max()}"
@@ -47,12 +64,29 @@ def _check_bounds(indices: np.ndarray, length: int, name: str):
 
 
 def _apply_HIS_trim(seq_is_his: np.ndarray, res_ids: np.ndarray) -> np.ndarray:
-    """Replicate poly-His trimming on a single chain."""
+    """Replicate poly-His trimming on a single chain.
+
+    Args:
+        seq_is_his: Seq is his value.
+        res_ids: Res ids value.
+
+    Returns:
+        Result of the apply HIS trim operation.
+    """
     L = int(seq_is_his.shape[0])
     if L == 0:
         return res_ids
 
     def _all_h(start: int, end: int) -> bool:
+        """Execute the all h operation.
+
+        Args:
+            start: Start value.
+            end: End value.
+
+        Returns:
+            Whether the all h condition is satisfied.
+        """
         if start < 0 or end > L:
             return False
         return bool(np.all(seq_is_his[start:end]))
@@ -87,8 +121,17 @@ def _trim_poly_his_in_assembly(
     assembly_chain_ids: List[int],
     drop_short_chain: bool = True,
 ) -> StructureData:
-    """Trim poly-His tags on selected assembly chains by slicing StructureData."""
-    his_idx = residue_tokens.get("HIS")
+    """Trim poly-His tags on selected assembly chains by slicing StructureData.
+
+    Args:
+        data: Data value.
+        assembly_chain_ids: Assembly chain ids value.
+        drop_short_chain: Drop short chain value.
+
+    Returns:
+        Result of the trim poly his in assembly operation.
+    """
+    his_idx = RESIDUE_TOKENS.get("HIS")
     if his_idx is None:
         return data
     if assembly_chain_ids is None:
@@ -143,16 +186,29 @@ def _trim_poly_his_in_assembly(
 
 
 class AllAtomDataset(torch.utils.data.Dataset):
+    """Implement the all atom dataset component."""
+
     def __init__(
         self,
-        cfg,
+        cfg: Any,
         dataset_type: str = "train",
         use_cache: bool = True,
         cache_length: int = -1,
-        test_time=0.0,
-        max_num_residues=None,
-        max_num_atoms=None,
-    ):
+        test_time: float = 0.0,
+        max_num_residues: Optional[int] = None,
+        max_num_atoms: Optional[int] = None,
+    ) -> None:
+        """Initialize the AllAtomDataset.
+
+        Args:
+            cfg: Configuration values.
+            dataset_type: Dataset type value.
+            use_cache: Use cache value.
+            cache_length: Cache length value.
+            test_time: Test time value.
+            max_num_residues: Max num residues value.
+            max_num_atoms: Max num atoms value.
+        """
         self.cfg = cfg
         if max_num_residues is None:
             self.max_num_residues = cfg.max_num_residues
@@ -185,12 +241,30 @@ class AllAtomDataset(torch.utils.data.Dataset):
                 capacity=cache_length, parse_fn=aap.parse_or_load_mmcif
             )
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of contained items.
+
+        Returns:
+            Computed integer value.
+        """
         return len(self.structs)
 
     def __getitem__(
-        self, idx, mask_chain_id=None, data_override=None
+        self,
+        idx: int,
+        mask_chain_id: Optional[str] = None,
+        data_override: Optional[Any] = None,
     ) -> aap.StructureData:
+        """Return an item selected by index.
+
+        Args:
+            idx: Idx value.
+            mask_chain_id: Boolean mask for mask chain id.
+            data_override: Data override value.
+
+        Returns:
+            Result of the getitem operation.
+        """
         try:
             if data_override is not None:
                 data = data_override
@@ -313,8 +387,21 @@ class AllAtomDataset(torch.utils.data.Dataset):
             return None
 
     def prepare_data(
-        self, data: aap.StructureData, time=None, mask_chain_id=None
+        self,
+        data: aap.StructureData,
+        time: Optional[float] = None,
+        mask_chain_id: Optional[str] = None,
     ) -> aap.StructureData:
+        """Prepare data.
+
+        Args:
+            data: Data value.
+            time: Time value.
+            mask_chain_id: Boolean mask for mask chain id.
+
+        Returns:
+            Result of the prepare data operation.
+        """
         batch_dict = data.__dict__
 
         mask_chain = np.zeros_like(batch_dict["chain_id"], dtype=bool)
@@ -329,6 +416,14 @@ class AllAtomDataset(torch.utils.data.Dataset):
         return data
 
     def corrupt(self, data: aap.StructureData) -> aap.StructureData:
+        """Execute the corrupt operation.
+
+        Args:
+            data: Data value.
+
+        Returns:
+            Result of the corrupt operation.
+        """
         batch_dict = data.__dict__
         mask_chain = batch_dict["mask_chain"]
 
@@ -358,7 +453,7 @@ class AllAtomDataset(torch.utils.data.Dataset):
         protein_atom_masked = residue_is_masked[protein_center_idx]
         atom_should_mask = np.zeros_like(batch_dict["is_protein"], dtype=bool)
         atom_should_mask[protein_positions] = protein_atom_masked
-        noisy_residue_token[atom_should_mask] = residue_tokens["<MASK>"]
+        noisy_residue_token[atom_should_mask] = RESIDUE_TOKENS["<MASK>"]
         batch_dict["noisy_residue_token"] = noisy_residue_token
 
         # Step 3: build keep_mask — remove sidechain atoms of masked residues
@@ -392,9 +487,9 @@ class AllAtomDataset(torch.utils.data.Dataset):
 
         # Step 5: reconstruct StructureData, preserving extra metadata (e.g., assemblies)
         update_mask_chain = mask_chain[keep_mask]
-        core = {k: v for k, v in batch_dict.items() if k in aap.structure_data_fields}
+        core = {k: v for k, v in batch_dict.items() if k in aap.STRUCTURE_DATA_FIELDS}
         extra = {
-            k: v for k, v in batch_dict.items() if k not in aap.structure_data_fields
+            k: v for k, v in batch_dict.items() if k not in aap.STRUCTURE_DATA_FIELDS
         }
         data = aap.StructureData(**core)
         data.mask_chain = update_mask_chain
@@ -427,7 +522,15 @@ class AllAtomDataset(torch.utils.data.Dataset):
 
         return data
 
-    def interact_residue(self, data):
+    def interact_residue(self, data: Any) -> Any:
+        """Execute the interact residue operation.
+
+        Args:
+            data: Data value.
+
+        Returns:
+            Result of the interact residue operation.
+        """
         protein_pos = np.expand_dims(data.position[data.is_protein], axis=1)
         non_protein_pos = np.expand_dims(data.position[~data.is_protein], axis=0)
         ion_pos = np.expand_dims(data.position[data.is_ion], axis=0)
@@ -474,23 +577,43 @@ class AllAtomDataset(torch.utils.data.Dataset):
         return data
 
 
-def _load_cluster_ids(path: Path | str) -> List[int]:
-    """Return a list of integer IDs, one per line, from *path*."""
+def _load_cluster_ids(path: Union[Path, str]) -> List[int]:
+    """Load cluster ids.
+
+    Args:
+        path: Path value.
+
+    Returns:
+        Computed result items.
+    """
     with open(path, "r", encoding="utf-8") as f:
         return [int(line.strip()) for line in f]
 
 
 class Cluster_AllAtomDataset(AllAtomDataset):
+    """Implement the cluster all atom dataset component."""
+
     def __init__(
         self,
-        cfg,
+        cfg: Any,
         dataset_type: str = "train",
         use_cache: bool = True,
         cache_length: int = -1,
-        test_time=0.0,
-        max_num_residues=None,
-        max_num_atoms=None,
-    ):
+        test_time: float = 0.0,
+        max_num_residues: Optional[int] = None,
+        max_num_atoms: Optional[int] = None,
+    ) -> None:
+        """Initialize the Cluster AllAtomDataset.
+
+        Args:
+            cfg: Configuration values.
+            dataset_type: Dataset type value.
+            use_cache: Use cache value.
+            cache_length: Cache length value.
+            test_time: Test time value.
+            max_num_residues: Max num residues value.
+            max_num_atoms: Max num atoms value.
+        """
         super().__init__(
             cfg,
             dataset_type,
@@ -580,15 +703,36 @@ class Cluster_AllAtomDataset(AllAtomDataset):
         )
 
     def __len__(self) -> int:
+        """Return the number of contained items.
+
+        Returns:
+            Computed integer value.
+        """
         return len(self.select_cluster.keys())
 
-    def __getitem__(self, idx) -> StructureData:
+    def __getitem__(self, idx: int) -> StructureData:
+        """Return an item selected by index.
+
+        Args:
+            idx: Idx value.
+
+        Returns:
+            Result of the getitem operation.
+        """
         cluster = self.select_cluster[self.sel_keys[idx]]
         sample = random.choice(cluster)
         # check if sample in this cluster has same pdb id
         sel_pdb = sample[:4]
 
         def _chain_label(s: str) -> str:
+            """Execute the chain label operation.
+
+            Args:
+                s: Input tensor.
+
+            Returns:
+                Result of the chain label operation.
+            """
             parts = s.split("_", 1)
             return parts[1] if len(parts) > 1 else s[4:]
 
@@ -630,7 +774,15 @@ class Cluster_AllAtomDataset(AllAtomDataset):
         if not isinstance(chain_map, dict):
             chain_map = {}
 
-        def _to_chain_index(label):
+        def _to_chain_index(label: Any) -> Any:
+            """Execute the to chain index operation.
+
+            Args:
+                label: Label value.
+
+            Returns:
+                Result of the to chain index operation.
+            """
             if isinstance(label, (int, np.integer)):
                 return int(label)
             s = str(label)
@@ -688,7 +840,16 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             asmb_chain_indices = getattr(data, "asmb_chain_indices", [])
             anchor_asmb = None
 
-            def _same_indices(a, b):
+            def _same_indices(a: Any, b: Any) -> Any:
+                """Execute the same indices operation.
+
+                Args:
+                    a: A value.
+                    b: B value.
+
+                Returns:
+                    Result of the same indices operation.
+                """
                 if a is b:
                     return True
                 try:
@@ -722,53 +883,3 @@ class Cluster_AllAtomDataset(AllAtomDataset):
         return super().__getitem__(
             index, mask_chain_id=mask_chain_id, data_override=data
         )
-
-
-if __name__ == "__main__":
-
-    # class Config:
-    #     data_path = "/ceph/scheres_grp/kyi/Documents/dataset/ligand_pdb/train_parsed"
-    #     max_num_atoms = 4096
-    #     max_num_residues = 512
-    #     random_seed = 42
-    #     cut_position_type = "ligand"
-    #     use_cathe = True
-
-    # dataset = AllAtomDataset(Config())
-
-    class Config:
-        # parsed data paths (split-specific)
-        train_data_path = "/ssd/dataset/pdb/train_parsed"
-        valid_data_path = "/ssd/dataset/pdb/valid_parsed"
-        test_data_path = "/ssd/dataset/pdb/test_parsed"
-
-        # fallback single path (not used when split paths exist)
-        data_path = "/ssd/dataset/pdb/valid_parsed"
-
-        # new cluster files
-        cluster_path = "/ceph.groups/scheres_grp/kyi/Documents/ADFLIP/data/new_cluster/cluster_to_pdb_chain.pkl"
-        train_cluster = "/ceph.groups/scheres_grp/kyi/Documents/ADFLIP/data/new_cluster/train_clusters.txt"
-        validation_cluster = "/ceph.groups/scheres_grp/kyi/Documents/ADFLIP/data/new_cluster/valid_clusters.txt"
-        test_cluster = "/ceph.groups/scheres_grp/kyi/Documents/ADFLIP/data/new_cluster/test_clusters.txt"
-
-        max_num_atoms = 4096
-        max_num_residues = 512
-        random_seed = 42
-        cut_position_type = "ligand"
-        use_cathe = True
-        debug_assembly_mask = False
-        debug_corrupt = True
-        trim_his_tag = False
-        trim_his_tag_drop_short_chain = True
-
-    dataset = Cluster_AllAtomDataset(
-        Config(), dataset_type="train", use_cache=True, cache_length=5000
-    )
-    print(f"valid dataset clusters: {len(dataset)}")
-
-    num_checks = min(200, len(dataset))
-    for i in tqdm(range(num_checks)):
-        try:
-            _ = dataset[i]
-        except Exception as e:
-            print(f"Failed to parse {dataset.structs[i]}", e)

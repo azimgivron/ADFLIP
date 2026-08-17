@@ -12,6 +12,10 @@ Usage:
     configure(include_nonstd_amino_acids=config.data.include_nonstd_amino_acids)
 """
 
+from __future__ import annotations
+
+from typing import Set
+
 import prody
 
 # -- Pre-computed residue sets --
@@ -216,17 +220,25 @@ ION = frozenset(
 
 
 # -- Configurable state --
-_include_nonstd = True  # default: include non-standard amino acids
+_INCLUDE_NONSTD = True  # default: include non-standard amino acids
 
 
-def configure(include_nonstd_amino_acids=True):
-    """Call from entry points after loading config."""
-    global _include_nonstd
-    _include_nonstd = include_nonstd_amino_acids
+def configure(include_nonstd_amino_acids: bool = True) -> None:
+    """Call from entry points after loading config.
+
+    Args:
+        include_nonstd_amino_acids: Include nonstd amino acids value.
+    """
+    global _INCLUDE_NONSTD
+    _INCLUDE_NONSTD = include_nonstd_amino_acids
 
 
-def get_protein_residues():
-    """Return the current protein residue set based on configuration."""
-    if _include_nonstd:
+def get_protein_residues() -> Set[str]:
+    """Return protein residues.
+
+    Returns:
+        Result of the get protein residues operation.
+    """
+    if _INCLUDE_NONSTD:
         return STDAA | NONSTDAA
     return set(STDAA)

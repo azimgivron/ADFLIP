@@ -1,12 +1,19 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class TransitionBlock(nn.Module):
-    def __init__(self, dim: int, input_dim: int = None):
-        """
-        Similar to AlphaFold3's Conditioned Transition Block
+    """Implement the transition block component."""
+
+    def __init__(self, dim: int, input_dim: int = None) -> None:
+        """Similar to AlphaFold3's Conditioned Transition Block
+
+        Args:
+            dim: Dimension for dim.
+            input_dim: Dimension for input.
         """
         super().__init__()
         if input_dim is None:
@@ -19,7 +26,15 @@ class TransitionBlock(nn.Module):
         nn.init.constant_(self.sigmoid_linear.bias, -2.0)
 
     # @torch.compile
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Computed tensor values.
+        """
         x = self.ln(x)
         b = F.silu(self.swish_linear(x)) * self.swish_scale_linear(x)
         x = F.sigmoid(self.sigmoid_linear(x)) * self.sigmoid_scale_linear(b)

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import logging
 import os
-from typing import *
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -14,19 +16,42 @@ except:
     import PIPPack.data.residue_constants as rc
     from PIPPack.data.featurizer import calc_sc_dihedrals
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 class BlackHole:
     """Dummy object."""
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: Any, value: Any) -> None:
+        """Set an attribute value.
+
+        Args:
+            name: Name value.
+            value: Value value.
+        """
         pass
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Sequence[Any], **kwargs: Dict[str, Any]) -> Any:
+        """Evaluate the callable object.
+
+        Args:
+            args: Additional arguments forwarded to the implementation.
+            kwargs: Additional arguments forwarded to the implementation.
+
+        Returns:
+            Result of the call operation.
+        """
         return self
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: Any) -> Any:
+        """Return a dynamically resolved attribute.
+
+        Args:
+            name: Name value.
+
+        Returns:
+            Result of the getattr operation.
+        """
         return self
 
 
@@ -36,7 +61,17 @@ def masked_mean(
     dim: Optional[Union[int, Tuple[int]]] = None,
     eps: float = 1e-4,
 ) -> torch.Tensor:
+    """Execute the masked mean operation.
 
+    Args:
+        mask: Boolean mask for mask.
+        value: Value value.
+        dim: Dimension for dim.
+        eps: Eps value.
+
+    Returns:
+        Computed tensor values.
+    """
     mask = mask.expand(*value.shape)
 
     return torch.sum(mask * value, dim=dim) / (eps + torch.sum(mask, dim=dim))
@@ -51,12 +86,11 @@ def supervised_chi_loss(
     true_chi_sincos: torch.Tensor,
     chi_weight: float,
     angle_norm_weight: float,
-    eps=1e-6,
-    _metric=None,
-    **kwargs,
+    eps: float = 1e-6,
+    _metric: Optional[Metric] = None,
+    **kwargs: Dict[str, Any],
 ) -> torch.Tensor:
-    """
-    Implements Algorithm 27 (torsionAngleLoss)
+    """Implements Algorithm 27 (torsionAngleLoss)
     Args:
         pred_norm_chi_sincos:
             [*, N, 4, 2] predicted angles
@@ -74,15 +108,18 @@ def supervised_chi_loss(
             Weight for the angle component of the loss
         angle_norm_weight:
             Weight for the normalization component of the loss
+        eps: Eps value.
+        _metric: Metric value.
+        kwargs: Additional arguments forwarded to the implementation.
     Returns:
         [*] loss tensor
     """
 
-    residue_type_one_hot = F.one_hot(aatype, rc.restype_num + 1)  # [*, Nres, 21]
+    residue_type_one_hot = F.one_hot(aatype, rc.RESTYPE_NUM + 1)  # [*, Nres, 21]
     chi_pi_periodic = torch.einsum(
         "...ij,jk->...ik",
         residue_type_one_hot.to(pred_norm_chi_sincos.dtype),
-        pred_norm_chi_sincos.new_tensor(rc.chi_pi_periodic),
+        pred_norm_chi_sincos.new_tensor(rc.CHI_PI_PERIODIC),
     )  # [*, Nres, 4]
 
     shifted_mask = (1 - 2 * chi_pi_periodic).unsqueeze(-1)  # [*, Nres, 4, 1]
@@ -123,9 +160,18 @@ def supervised_chi_loss(
     return loss
 
 
-def wrapped_chi_angle(CH_pred, CH_true):
+def wrapped_chi_angle(CH_pred: torch.Tensor, CH_true: torch.Tensor) -> torch.Tensor:
 
     # Determine which rotamers are correct via wrapped from negative end
+    """Execute the wrapped chi angle operation.
+
+    Args:
+        CH_pred: Ch pred value.
+        CH_true: Ch true value.
+
+    Returns:
+        Computed tensor values.
+    """
     dist_neg_edge = torch.abs(CH_pred - -180.0)
     close_to_neg_edge = dist_neg_edge <= 20.0
     wrapped_dist = 20.0 - dist_neg_edge
@@ -140,14 +186,26 @@ def wrapped_chi_angle(CH_pred, CH_true):
     return wrapped_rot_neg + wrapped_rot_pos
 
 
-def pi_periodic_rotamer(CH_pred, CH_true, S):
+def pi_periodic_rotamer(
+    CH_pred: torch.Tensor, CH_true: torch.Tensor, S: torch.Tensor
+) -> torch.Tensor:
 
     # Get which chis are pi periodic
+    """Execute the pi periodic rotamer operation.
+
+    Args:
+        CH_pred: Ch pred value.
+        CH_true: Ch true value.
+        S: Input tensor.
+
+    Returns:
+        Computed tensor values.
+    """
     residue_type_one_hot = F.one_hot(S, 21)
     chi_pi_periodic = torch.einsum(
         "...ij, jk->...ik",
         residue_type_one_hot.type(CH_pred.dtype),
-        CH_pred.new_tensor(np.array(rc.chi_pi_periodic)),
+        CH_pred.new_tensor(np.array(rc.CHI_PI_PERIODIC)),
     )
 
     # Shift for the predicted chis
@@ -157,18 +215,34 @@ def pi_periodic_rotamer(CH_pred, CH_true, S):
 
 
 def rotamer_recovery_from_coords(
-    S,
-    true_SC_D,
-    pred_X,
-    residue_mask,
-    SC_D_mask,
-    return_raw=False,
-    return_chis=False,
-    exclude_AG=True,
-    _metric=None,
-):
+    S: torch.Tensor,
+    true_SC_D: torch.Tensor,
+    pred_X: torch.Tensor,
+    residue_mask: torch.Tensor,
+    SC_D_mask: torch.Tensor,
+    return_raw: bool = False,
+    return_chis: bool = False,
+    exclude_AG: bool = True,
+    _metric: Optional[Metric] = None,
+) -> Any:
 
     # Compute true and predicted chi dihedrals (in degrees)
+    """Execute the rotamer recovery from coords operation.
+
+    Args:
+        S: Input tensor.
+        true_SC_D: True sc d value.
+        pred_X: Pred x value.
+        residue_mask: Boolean mask for residue.
+        SC_D_mask: Boolean mask for sc d.
+        return_raw: Return raw value.
+        return_chis: Return chis value.
+        exclude_AG: Exclude ag value.
+        _metric: Metric value.
+
+    Returns:
+        Result of the rotamer recovery from coords operation.
+    """
     CH_true = true_SC_D * 180.0 / torch.pi
     CH_pred = (
         torch.nan_to_num(calc_sc_dihedrals(pred_X, S, return_mask=False))
@@ -198,8 +272,8 @@ def rotamer_recovery_from_coords(
 
     # Exclude Ala and Gly
     if exclude_AG:
-        ala_mask = (S == rc.restype_order["A"]).float()  # [B, L]
-        gly_mask = (S == rc.restype_order["G"]).float()  # [B, L]
+        ala_mask = (S == rc.RESTYPE_ORDER["A"]).float()  # [B, L]
+        gly_mask = (S == rc.RESTYPE_ORDER["G"]).float()  # [B, L]
         residue_mask = residue_mask * (1.0 - ala_mask) * (1.0 - gly_mask)  # [B, L]
 
     # Determine average number of correct rotamers for each chain (depending on that chains length)
@@ -218,15 +292,32 @@ def rotamer_recovery_from_coords(
         return torch.mean(rr)
 
 
-def nll_chi_loss(chi_log_probs, true_chi_bin, sequence, chi_mask, _metric=None):
-    """Negative log probabilities for binned chi prediction"""
+def nll_chi_loss(
+    chi_log_probs: torch.Tensor,
+    true_chi_bin: torch.Tensor,
+    sequence: torch.Tensor,
+    chi_mask: torch.Tensor,
+    _metric: Optional[Metric] = None,
+) -> Any:
+    """Negative log probabilities for binned chi prediction
+
+    Args:
+        chi_log_probs: Chi log probs value.
+        true_chi_bin: True chi bin value.
+        sequence: Sequence value.
+        chi_mask: Boolean mask for chi.
+        _metric: Metric value.
+
+    Returns:
+        Result of the nll chi loss operation.
+    """
 
     # Get which chis are pi periodic
     residue_type_one_hot = F.one_hot(sequence.long(), 21)
     chi_pi_periodic = torch.einsum(
         "...ij, jk->...ik",
         residue_type_one_hot.type(chi_log_probs.dtype),
-        chi_mask.new_tensor(np.array(rc.chi_pi_periodic)),
+        chi_mask.new_tensor(np.array(rc.CHI_PI_PERIODIC)),
     )
 
     # Create shifted true chi bin for the pi periodic chis
@@ -259,8 +350,26 @@ def nll_chi_loss(chi_log_probs, true_chi_bin, sequence, chi_mask, _metric=None):
 
 
 def offset_mse(
-    offset_pred, offset_true, mask, n_chi_bin=36, scale_pred=True, _metric=None
-):
+    offset_pred: torch.Tensor,
+    offset_true: torch.Tensor,
+    mask: torch.Tensor,
+    n_chi_bin: int = 36,
+    scale_pred: bool = True,
+    _metric: Optional[Metric] = None,
+) -> Any:
+    """Execute the offset mse operation.
+
+    Args:
+        offset_pred: Offset pred value.
+        offset_true: Offset true value.
+        mask: Boolean mask for mask.
+        n_chi_bin: Number of chi bin.
+        scale_pred: Scale pred value.
+        _metric: Metric value.
+
+    Returns:
+        Result of the offset mse operation.
+    """
     if scale_pred:
         offset_pred = (2 * torch.pi / n_chi_bin) * offset_pred
 
@@ -276,25 +385,35 @@ def get_renamed_coords(
     X: torch.Tensor, S: torch.Tensor, pseudo_renaming: bool = False
 ) -> torch.Tensor:
     # Determine which atoms should be swapped.
+    """Return renamed coords.
+
+    Args:
+        X: Input tensor.
+        S: Input tensor.
+        pseudo_renaming: Pseudo renaming value.
+
+    Returns:
+        Computed tensor values.
+    """
     if pseudo_renaming:
-        atom_renaming_swaps = rc.residue_atom_pseudo_renaming_swaps
+        atom_renaming_swaps = rc.RESIDUE_ATOM_PSEUDO_RENAMING_SWAPS
     else:
-        atom_renaming_swaps = rc.residue_atom_renaming_swaps
+        atom_renaming_swaps = rc.RESIDUE_ATOM_RENAMING_SWAPS
 
     # Rename symmetric atoms
     renamed_X = X.clone()
     for restype in atom_renaming_swaps:
         # Get mask based on restype
-        restype_idx = rc.restype_order[rc.restype_3to1[restype]]
+        restype_idx = rc.RESTYPE_ORDER[rc.RESTYPE_3TO1[restype]]
         restype_mask = S == restype_idx
 
         # Swap atom coordinates for restype
         restype_X = renamed_X * restype_mask[..., None, None]
         for atom_pair in atom_renaming_swaps[restype]:
             atom1, atom2 = atom_pair
-            atom1_idx, atom2_idx = rc.restype_name_to_atom14_names[restype].index(
+            atom1_idx, atom2_idx = rc.RESTYPE_NAME_TO_ATOM14_NAMES[restype].index(
                 atom1
-            ), rc.restype_name_to_atom14_names[restype].index(atom2)
+            ), rc.RESTYPE_NAME_TO_ATOM14_NAMES[restype].index(atom2)
 
             restype_X[..., atom1_idx, :] = X[..., atom2_idx, :]
             restype_X[..., atom2_idx, :] = X[..., atom1_idx, :]
@@ -306,8 +425,30 @@ def get_renamed_coords(
     return renamed_X
 
 
-def sc_rmsd(decoy_X, true_X, S, X_mask, residue_mask, _metric=None, use_sqrt=False):
+def sc_rmsd(
+    decoy_X: torch.Tensor,
+    true_X: torch.Tensor,
+    S: torch.Tensor,
+    X_mask: torch.Tensor,
+    residue_mask: torch.Tensor,
+    _metric: Optional[Metric] = None,
+    use_sqrt: bool = False,
+) -> Any:
     # Compute atom deviation based on original coordinates
+    """Execute the sc rmsd operation.
+
+    Args:
+        decoy_X: Decoy x value.
+        true_X: True x value.
+        S: Input tensor.
+        X_mask: Boolean mask for x.
+        residue_mask: Boolean mask for residue.
+        _metric: Metric value.
+        use_sqrt: Use sqrt value.
+
+    Returns:
+        Result of the sc rmsd operation.
+    """
     atom_deviation = torch.sum(torch.square(decoy_X - true_X), dim=-1)
 
     # Compute atom deviation based on alternative coordinates
@@ -335,6 +476,8 @@ def sc_rmsd(decoy_X, true_X, S, X_mask, residue_mask, _metric=None, use_sqrt=Fal
 # TODO: Figure out if any changes are necessary for max and min metrics. I don't think that
 # the logging functionality will be correct for these.
 class MetricLogger:
+    """Implement the metric logger component."""
+
     def __init__(
         self,
         log_file: str,
@@ -342,6 +485,14 @@ class MetricLogger:
         max_metrics: Sequence[str] = [],
         min_metrics: Sequence[str] = [],
     ) -> None:
+        """Initialize the MetricLogger.
+
+        Args:
+            log_file: Path for log.
+            mean_metrics: Mean metrics value.
+            max_metrics: Max metrics value.
+            min_metrics: Min metrics value.
+        """
         self.log_file = log_file
         self.mean_metrics = {metric: MeanMetric() for metric in mean_metrics}
         self.max_metrics = {metric: MaxMetric() for metric in max_metrics}
@@ -349,6 +500,7 @@ class MetricLogger:
         self._initialize_log()
 
     def _initialize_log(self) -> None:
+        """Execute the initialize log operation."""
         if os.path.exists(self.log_file):
             raise ValueError(f"Log file {self.log_file} already exists.")
 
@@ -362,7 +514,15 @@ class MetricLogger:
         with open(self.log_file, "w") as f:
             f.write(",".join(log_cols) + "\n")
 
-    def to(self, device: str):
+    def to(self, device: str) -> Any:
+        """Execute the to operation.
+
+        Args:
+            device: Device used for tensor operations.
+
+        Returns:
+            Result of the to operation.
+        """
         for metric in self.mean_metrics:
             self.mean_metrics[metric] = self.mean_metrics[metric].to(device)
         for metric in self.max_metrics:
@@ -379,6 +539,13 @@ class MetricLogger:
         weight: Union[float, torch.Tensor] = 1.0,
     ) -> None:
         # Update all metrics matching <key>.
+        """Execute the update operation.
+
+        Args:
+            key: Key value.
+            value: Value value.
+            weight: Weight value.
+        """
         if key in self.mean_metrics:
             self.mean_metrics[key].update(value, weight)
         if key in self.max_metrics:
@@ -387,6 +554,11 @@ class MetricLogger:
             self.min_metrics[key].update(value)
 
     def compute(self) -> Dict[str, Dict[str, torch.Tensor]]:
+        """Execute the compute operation.
+
+        Returns:
+            Computed tensor values.
+        """
         metrics = {
             "mean": {
                 key: self.mean_metrics[key].compute() for key in self.mean_metrics
@@ -398,6 +570,12 @@ class MetricLogger:
 
     def log(self, epoch: int, precision: int = 5) -> None:
         # Compute metrics and create list for CSV logging.
+        """Execute the log operation.
+
+        Args:
+            epoch: Epoch value.
+            precision: Precision value.
+        """
         computed_metrics = self.compute()
         log_cols = [
             epoch,
@@ -418,11 +596,21 @@ class MetricLogger:
 
     def reset_metrics(self) -> None:
         # Reset all metrics.
+        """Reset metrics."""
         [metric.reset() for metric in self.mean_metrics.values()]
         [metric.reset() for metric in self.max_metrics.values()]
         [metric.reset() for metric in self.min_metrics.values()]
 
     def get_metric(self, key: str, type: str = "mean") -> Metric:
+        """Return metric.
+
+        Args:
+            key: Key value.
+            type: Type value.
+
+        Returns:
+            Result of the get metric operation.
+        """
         if type == "mean":
             return self.mean_metrics[key]
         elif type == "max":
@@ -438,21 +626,32 @@ def interresidue_sc_clash_loss(
     atom14_pred_positions: torch.Tensor,
     clash_overlap_tolerance: float,  # OpenFold value is 1.5
     eps: float = 1e-10,
-    _metric=None,
+    _metric: Optional[Metric] = None,
     return_clashing_pairs: bool = False,
 ) -> Dict[str, torch.Tensor]:
     """Computes several checks for structural violations resulting from sidechains.
 
     Note: This ignores intra-residue clashes and backbone-backbone clashes.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        clash_overlap_tolerance: Clash overlap tolerance value.
+        eps: Eps value.
+        _metric: Metric value.
+        return_clashing_pairs: Return clashing pairs value.
+
+    Returns:
+        Computed tensor values.
     """
 
     # Get needed components from batch.
     aatype = batch["S"].clone()
     restype_atom14_to_atom37 = []
-    for rt in rc.restypes:
-        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+    for rt in rc.RESTYPES:
+        atom_names = rc.RESTYPE_NAME_TO_ATOM14_NAMES[rc.RESTYPE_1TO3[rt]]
         restype_atom14_to_atom37.append(
-            [(rc.atom_order[name] if name else 0) for name in atom_names]
+            [(rc.ATOM_ORDER[name] if name else 0) for name in atom_names]
         )
     restype_atom14_to_atom37.append([0] * 14)
     restype_atom14_to_atom37 = torch.tensor(
@@ -465,7 +664,7 @@ def interresidue_sc_clash_loss(
     # Compute the Van der Waals radius for every atom
     # (the first letter of the atom name is the element type).
     # Shape: (N, 14).
-    atomtype_radius = [rc.van_der_waals_radius[name[0]] for name in rc.atom_types]
+    atomtype_radius = [rc.VAN_DER_WAALS_RADIUS[name[0]] for name in rc.ATOM_TYPES]
     atomtype_radius = atom14_pred_positions.new_tensor(atomtype_radius)
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
 
@@ -505,7 +704,7 @@ def interresidue_sc_clash_loss(
     dists_mask = dists_mask * (1.0 - bb_bb_mask)
 
     # Disulfide bridge between two cysteines is no clash.
-    cys = rc.restype_name_to_atom14_names["CYS"]
+    cys = rc.RESTYPE_NAME_TO_ATOM14_NAMES["CYS"]
     cys_sg_idx = cys.index("SG")
     cys_sg_idx = residue_index.new_tensor(cys_sg_idx)
     cys_sg_idx = cys_sg_idx.reshape(*((1,) * len(residue_index.shape[:-1])), 1).squeeze(
@@ -562,7 +761,7 @@ def interresidue_sc_clash_loss(
         *((1,) * len(residue_index.shape[:-1])), *o_one_hot.shape
     )
     o_one_hot = o_one_hot.type(fp_type)
-    pro = rc.restype_name_to_atom14_names["PRO"]
+    pro = rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"]
     pro_cg_idx = pro.index("CG")
     pro_cg_idx = residue_index.new_tensor(pro_cg_idx)
     pro_cg_idx = pro_cg_idx.reshape(*((1,) * len(residue_index.shape[:-1])), 1).squeeze(
@@ -575,7 +774,7 @@ def interresidue_sc_clash_loss(
         -1
     )
     pro_cd_one_hot = F.one_hot(pro_cd_idx, num_classes=14).type(fp_type)
-    res_ip1_pro = aatype[..., 1:] == rc.restype_order["P"]
+    res_ip1_pro = aatype[..., 1:] == rc.RESTYPE_ORDER["P"]
     res_ip1_pro = torch.cat(
         (
             res_ip1_pro,
@@ -667,19 +866,19 @@ def interresidue_sc_clash_loss(
             pairs = []
             for r1, r2, a1, a2 in zip(res1, res2, atom1, atom2):
                 c1 = (
-                    rc.restypes[aatype[b_idx][r1]]
+                    rc.RESTYPES[aatype[b_idx][r1]]
                     + str(residue_index[b_idx][r1].item())
                     + " "
-                    + rc.restype_name_to_atom14_names[
-                        rc.restype_1to3[rc.restypes[aatype[b_idx][r1]]]
+                    + rc.RESTYPE_NAME_TO_ATOM14_NAMES[
+                        rc.RESTYPE_1TO3[rc.RESTYPES[aatype[b_idx][r1]]]
                     ][a1]
                 )
                 c2 = (
-                    rc.restypes[aatype[b_idx][r2]]
+                    rc.RESTYPES[aatype[b_idx][r2]]
                     + str(residue_index[b_idx][r2].item())
                     + " "
-                    + rc.restype_name_to_atom14_names[
-                        rc.restype_1to3[rc.restypes[aatype[b_idx][r2]]]
+                    + rc.RESTYPE_NAME_TO_ATOM14_NAMES[
+                        rc.RESTYPE_1TO3[rc.RESTYPES[aatype[b_idx][r2]]]
                     ][a2]
                 )
                 pairs.append((c1, c2))
@@ -700,20 +899,32 @@ def local_interresidue_sc_clash_loss(
     distance_threshold: float = 14.0,
     basis_atom: str = "CB",
     eps: float = 1e-10,
-    _metric=None,
+    _metric: Optional[Metric] = None,
 ) -> Dict[str, torch.Tensor]:
     """Computes several checks for structural violations resulting from sidechains.
 
     Note: This ignores intra-residue clashes and backbone-backbone clashes.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        clash_overlap_tolerance: Clash overlap tolerance value.
+        distance_threshold: Distance threshold value.
+        basis_atom: Basis atom value.
+        eps: Eps value.
+        _metric: Metric value.
+
+    Returns:
+        Computed tensor values.
     """
 
     # Get needed components from batch.
     aatype = batch["S"].clone()
     restype_atom14_to_atom37 = []
-    for rt in rc.restypes:
-        atom_names = rc.restype_name_to_atom14_names[rc.restype_1to3[rt]]
+    for rt in rc.RESTYPES:
+        atom_names = rc.RESTYPE_NAME_TO_ATOM14_NAMES[rc.RESTYPE_1TO3[rt]]
         restype_atom14_to_atom37.append(
-            [(rc.atom_order[name] if name else 0) for name in atom_names]
+            [(rc.ATOM_ORDER[name] if name else 0) for name in atom_names]
         )
     restype_atom14_to_atom37.append([0] * 14)
     restype_atom14_to_atom37 = torch.tensor(
@@ -728,7 +939,7 @@ def local_interresidue_sc_clash_loss(
     # Compute the Van der Waals radius for every atom
     # (the first letter of the atom name is the element type).
     # Shape: (*, N, 14).
-    atomtype_radius = [rc.van_der_waals_radius[name[0]] for name in rc.atom_types]
+    atomtype_radius = [rc.VAN_DER_WAALS_RADIUS[name[0]] for name in rc.ATOM_TYPES]
     atomtype_radius = atom14_pred_positions.new_tensor(atomtype_radius)
     atom14_atom_radius = atom14_atom_exists * atomtype_radius[residx_atom14_to_atom37]
 
@@ -736,9 +947,9 @@ def local_interresidue_sc_clash_loss(
     # shape (*, N, 3)
     if basis_atom == "CB":
         basis_atom_idx = 4 * torch.ones_like(aatype)
-        basis_atom_idx[aatype == rc.restype_order["G"]] = 1
+        basis_atom_idx[aatype == rc.RESTYPE_ORDER["G"]] = 1
     else:
-        basis_atom_idx = rc.atom_order[basis_atom] * torch.ones_like(aatype)
+        basis_atom_idx = rc.ATOM_ORDER[basis_atom] * torch.ones_like(aatype)
     basis_xyz = torch.gather(
         atom14_pred_positions,
         -2,
@@ -796,12 +1007,12 @@ def local_interresidue_sc_clash_loss(
     dists_mask = dists_mask * (1.0 - bb_bb_mask)
 
     # Disulfide bridge between two cysteines is no clash.
-    cys = rc.restype_name_to_atom14_names["CYS"]
+    cys = rc.RESTYPE_NAME_TO_ATOM14_NAMES["CYS"]
     cys_sg_idx = cys.index("SG")
     cys_sg_idx = aatype.new_tensor(cys_sg_idx)
     cys_sg_one_hot = F.one_hot(cys_sg_idx, num_classes=14)
-    cys_res1 = aatype[valid_pairs[0], valid_pairs[1]] == rc.restype_order["C"]
-    cys_res2 = aatype[valid_pairs[0], valid_pairs[2]] == rc.restype_order["C"]
+    cys_res1 = aatype[valid_pairs[0], valid_pairs[1]] == rc.RESTYPE_ORDER["C"]
+    cys_res2 = aatype[valid_pairs[0], valid_pairs[2]] == rc.RESTYPE_ORDER["C"]
     cys_mask = torch.logical_and(cys_res1, cys_res2)
     disulfide_bonds = cys_mask[..., None, None] * (
         cys_sg_one_hot[None, :, None] * cys_sg_one_hot[None, None, :]
@@ -832,14 +1043,14 @@ def local_interresidue_sc_clash_loss(
     # C_i - Cg_i+1, C_i - Cd_i+1, O_i - Cd_i+1, and Ca_i - Cd_i+1.
     ca_one_hot = F.one_hot(residue_index.new_tensor(1), num_classes=14).type(fp_type)
     o_one_hot = F.one_hot(residue_index.new_tensor(3), num_classes=14).type(fp_type)
-    pro = rc.restype_name_to_atom14_names["PRO"]
+    pro = rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"]
     pro_cg_idx = pro.index("CG")
     pro_cg_idx = residue_index.new_tensor(pro_cg_idx)
     pro_cg_one_hot = F.one_hot(pro_cg_idx, num_classes=14).type(fp_type)
     pro_cd_idx = pro.index("CD")
     pro_cd_idx = residue_index.new_tensor(pro_cd_idx)
     pro_cd_one_hot = F.one_hot(pro_cd_idx, num_classes=14).type(fp_type)
-    pro_res2 = aatype[valid_pairs[0], valid_pairs[2]] == rc.restype_order["P"]
+    pro_res2 = aatype[valid_pairs[0], valid_pairs[2]] == rc.RESTYPE_ORDER["P"]
     pro_neighbor_mask = pro_res2 * neighbor_mask  # [N_pairs]
     c_pro_cg_dists = (
         pro_neighbor_mask[..., None, None]
@@ -910,25 +1121,41 @@ def local_interresidue_sc_clash_loss(
 
 
 def unclosed_proline_loss(
-    batch, atom14_pred_positions, tolerance_factor=12, _metric=None, eps=1e-10
+    batch: Any,
+    atom14_pred_positions: torch.Tensor,
+    tolerance_factor: int = 12,
+    _metric: Optional[Metric] = None,
+    eps: float = 1e-10,
 ) -> torch.Tensor:
     # Mean and standard deviation of the CD-N bond length in proline
     # (from stereo_chemical_props.txt)
+    """Execute the unclosed proline loss operation.
+
+    Args:
+        batch: Batch value.
+        atom14_pred_positions: Atom14 pred positions value.
+        tolerance_factor: Tolerance factor value.
+        _metric: Metric value.
+        eps: Eps value.
+
+    Returns:
+        Computed tensor values.
+    """
     pro_CD_N_mean = 1.474
     pro_CD_N_std = 0.014
 
     # Find proline residues
-    pro_mask = (batch["S"] == rc.restype_order["P"]).float()
+    pro_mask = (batch["S"] == rc.RESTYPE_ORDER["P"]).float()
     pro_mask = pro_mask * batch.residue_mask
 
     # Get the CD-N bond lengths
     # (distances are summed rather than squared to avoid taking the square root)
     pro_atom_positions = atom14_pred_positions[pro_mask == 1]
     pro_N = pro_atom_positions[
-        ..., rc.restype_name_to_atom14_names["PRO"].index("N"), :
+        ..., rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"].index("N"), :
     ]
     pro_CD = pro_atom_positions[
-        ..., rc.restype_name_to_atom14_names["PRO"].index("CD"), :
+        ..., rc.RESTYPE_NAME_TO_ATOM14_NAMES["PRO"].index("CD"), :
     ]
     pro_CD_N = torch.sum((pro_CD - pro_N) ** 2, dim=-1)
 

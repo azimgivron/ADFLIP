@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import logging
 import math
-from typing import *
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -45,15 +47,33 @@ except:
 
 
 # The following gather functions
-def gather_edges(edges, neighbor_idx):
+def gather_edges(edges: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
     # Features [B,N,N,C] at Neighbor indices [B,N,K] => Neighbor features [B,N,K,C]
+    """Execute the gather edges operation.
+
+    Args:
+        edges: Edges value.
+        neighbor_idx: Neighbor idx value.
+
+    Returns:
+        Result of the gather edges operation.
+    """
     neighbors = neighbor_idx.unsqueeze(-1).expand(-1, -1, -1, edges.size(-1))
     edge_features = torch.gather(edges, 2, neighbors)
     return edge_features
 
 
-def gather_nodes(nodes, neighbor_idx):
+def gather_nodes(nodes: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
     # Features [...,N,C] at Neighbor indices [...,N,K] => [...,N,K,C]
+    """Execute the gather nodes operation.
+
+    Args:
+        nodes: Nodes value.
+        neighbor_idx: Neighbor idx value.
+
+    Returns:
+        Result of the gather nodes operation.
+    """
     is_batched = neighbor_idx.dim() == 3
     n_feat_dims = nodes.dim() - (1 + is_batched)
 
@@ -73,13 +93,33 @@ def gather_nodes(nodes, neighbor_idx):
     return neighbor_features
 
 
-def cat_neighbors_nodes(h_nodes, h_neighbors, E_idx):
+def cat_neighbors_nodes(
+    h_nodes: torch.Tensor, h_neighbors: torch.Tensor, E_idx: torch.Tensor
+) -> torch.Tensor:
+    """Execute the cat neighbors nodes operation.
+
+    Args:
+        h_nodes: H nodes value.
+        h_neighbors: H neighbors value.
+        E_idx: E idx value.
+
+    Returns:
+        Result of the cat neighbors nodes operation.
+    """
     h_nodes = gather_nodes(h_nodes, E_idx)
     h_nn = torch.cat([h_neighbors, h_nodes], -1)
     return h_nn
 
 
-def get_act_fxn(act: str):
+def get_act_fxn(act: str) -> Callable[..., torch.Tensor]:
+    """Return act fxn.
+
+    Args:
+        act: Act value.
+
+    Returns:
+        Result of the get act fxn operation.
+    """
     if act == "relu":
         return F.relu
     elif act == "gelu":
@@ -101,7 +141,27 @@ def get_act_fxn(act: str):
 
 
 class MLP(nn.Module):
-    def __init__(self, num_in, num_inter, num_out, num_layers, act="relu", bias=True):
+    """Implement the mlp component."""
+
+    def __init__(
+        self,
+        num_in: int,
+        num_inter: int,
+        num_out: int,
+        num_layers: int,
+        act: str = "relu",
+        bias: bool = True,
+    ) -> None:
+        """Initialize the MLP.
+
+        Args:
+            num_in: Number of in.
+            num_inter: Number of inter.
+            num_out: Number of out.
+            num_layers: Number of layers.
+            act: Act value.
+            bias: Bias value.
+        """
         super().__init__()
 
         # Linear layers for MLP
@@ -114,9 +174,17 @@ class MLP(nn.Module):
         # Activation function
         self.act = get_act_fxn(act)
 
-    def forward(self, X):
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
 
         # Embed inputs with input layer
+        """Run the forward pass.
+
+        Args:
+            X: Input tensor.
+
+        Returns:
+            Computed tensor values.
+        """
         X = self.act(self.W_in(X))
 
         # Pass through intermediate layers
@@ -130,16 +198,29 @@ class MLP(nn.Module):
 
 
 class MPNNLayer(nn.Module):
+    """Implement the mpnnlayer component."""
+
     def __init__(
         self,
-        num_hidden,
-        num_in,
-        dropout=0.1,
-        scale=30,
-        edge_update=False,
-        act="relu",
-        extra_params=0,
-    ):
+        num_hidden: int,
+        num_in: int,
+        dropout: float = 0.1,
+        scale: int = 30,
+        edge_update: bool = False,
+        act: str = "relu",
+        extra_params: int = 0,
+    ) -> None:
+        """Initialize the MPNNLayer.
+
+        Args:
+            num_hidden: Number of hidden.
+            num_in: Number of in.
+            dropout: Dropout value.
+            scale: Scale value.
+            edge_update: Edge update value.
+            act: Act value.
+            extra_params: Extra params value.
+        """
         super(MPNNLayer, self).__init__()
         self.num_hidden = num_hidden
         self.num_in = num_in
@@ -170,8 +251,26 @@ class MPNNLayer(nn.Module):
             self.dropout2 = nn.Dropout(dropout)
             self.norm2 = nn.LayerNorm(num_hidden)
 
-    def forward(self, h_V, h_E, E_idx=None, mask_V=None, mask_attend=None):
-        """Parallel computation of full transformer layer"""
+    def forward(
+        self,
+        h_V: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: Optional[torch.Tensor] = None,
+        mask_V: Optional[torch.Tensor] = None,
+        mask_attend: Optional[torch.Tensor] = None,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """Parallel computation of full transformer layer
+
+        Args:
+            h_V: H v value.
+            h_E: H e value.
+            E_idx: E idx value.
+            mask_V: Boolean mask for mask V.
+            mask_attend: Boolean mask for mask attend.
+
+        Returns:
+            Computed tensor values.
+        """
 
         if torch.is_tensor(E_idx):
             h_EV = cat_neighbors_nodes(h_V, h_E, E_idx)
@@ -211,17 +310,31 @@ class MPNNLayer(nn.Module):
 
 
 class InvariantPointMessagePassing(nn.Module):
+    """Implement the invariant point message passing component."""
+
     def __init__(
         self,
-        node_dim,
-        edge_dim,
-        hidden_dim,
-        n_points=8,
-        dropout=0.1,
-        act="relu",
-        edge_update=False,
-        position_scale=10.0,
-    ):
+        node_dim: int,
+        edge_dim: int,
+        hidden_dim: int,
+        n_points: int = 8,
+        dropout: float = 0.1,
+        act: str = "relu",
+        edge_update: bool = False,
+        position_scale: float = 10.0,
+    ) -> None:
+        """Initialize the InvariantPointMessagePassing.
+
+        Args:
+            node_dim: Dimension for node.
+            edge_dim: Dimension for edge.
+            hidden_dim: Dimension for hidden.
+            n_points: Number of points.
+            dropout: Dropout value.
+            act: Act value.
+            edge_update: Edge update value.
+            position_scale: Position scale value.
+        """
         super().__init__()
 
         self.edge_update = edge_update
@@ -260,8 +373,27 @@ class InvariantPointMessagePassing(nn.Module):
                 hidden_dim, hidden_dim * 4, hidden_dim, num_layers=2, act=act
             )
 
-    def _get_message_input(self, h_V, h_E, E_idx, X, edge=False):
+    def _get_message_input(
+        self,
+        h_V: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: torch.Tensor,
+        X: torch.Tensor,
+        edge: bool = False,
+    ) -> Any:
         # Get backbone global frames from N, CA, and C
+        """Return message input.
+
+        Args:
+            h_V: H v value.
+            h_E: H e value.
+            E_idx: E idx value.
+            X: Input tensor.
+            edge: Edge value.
+
+        Returns:
+            Result of the get message input operation.
+        """
         bb_to_global = get_bb_frames(X[..., 0, :], X[..., 1, :], X[..., 2, :])
         bb_to_global = bb_to_global.scale_translation(1 / self.position_scale)
 
@@ -336,8 +468,29 @@ class InvariantPointMessagePassing(nn.Module):
 
         return message_in
 
-    def forward(self, h_V, h_E, E_idx, X, mask_V=None, mask_attend=None):
+    def forward(
+        self,
+        h_V: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: torch.Tensor,
+        X: torch.Tensor,
+        mask_V: Optional[torch.Tensor] = None,
+        mask_attend: Optional[torch.Tensor] = None,
+    ) -> Tuple[Any, ...]:
         # Get message fn input
+        """Run the forward pass.
+
+        Args:
+            h_V: H v value.
+            h_E: H e value.
+            E_idx: E idx value.
+            X: Input tensor.
+            mask_V: Boolean mask for mask v.
+            mask_attend: Boolean mask for mask attend.
+
+        Returns:
+            Computed result values.
+        """
         message_in = self._get_message_input(h_V, h_E, E_idx, X)
 
         # Update nodes
@@ -369,19 +522,35 @@ class InvariantPointMessagePassing(nn.Module):
 
 
 class IPMP_IPA(nn.Module):
+    """Implement the ipmp ipa component."""
+
     def __init__(
         self,
-        node_dim,
-        edge_dim,
-        hidden_dim=16,
-        n_heads=1,
-        n_query_points=4,
-        n_value_points=8,
-        edge_update=False,
-        position_scale=10.0,
-        dropout=0.1,
-        act="relu",
-    ):
+        node_dim: int,
+        edge_dim: int,
+        hidden_dim: int = 16,
+        n_heads: int = 1,
+        n_query_points: int = 4,
+        n_value_points: int = 8,
+        edge_update: bool = False,
+        position_scale: float = 10.0,
+        dropout: float = 0.1,
+        act: str = "relu",
+    ) -> None:
+        """Initialize the IPMP IPA.
+
+        Args:
+            node_dim: Dimension for node.
+            edge_dim: Dimension for edge.
+            hidden_dim: Dimension for hidden.
+            n_heads: Number of heads.
+            n_query_points: Number of query points.
+            n_value_points: Number of value points.
+            edge_update: Edge update value.
+            position_scale: Position scale value.
+            dropout: Dropout value.
+            act: Act value.
+        """
         super().__init__()
 
         self.hidden_dim = hidden_dim
@@ -440,8 +609,27 @@ class IPMP_IPA(nn.Module):
                 edge_dim, edge_dim * 4, edge_dim, num_layers=2, act=act
             )
 
-    def _get_node_update(self, h_V, h_E, E_idx, X, mask_attend=None):
+    def _get_node_update(
+        self,
+        h_V: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: torch.Tensor,
+        X: torch.Tensor,
+        mask_attend: Optional[torch.Tensor] = None,
+    ) -> Any:
         # Get backbone global frames from N, CA, and C
+        """Return node update.
+
+        Args:
+            h_V: H v value.
+            h_E: H e value.
+            E_idx: E idx value.
+            X: Input tensor.
+            mask_attend: Boolean mask for mask attend.
+
+        Returns:
+            Result of the get node update operation.
+        """
         scaled_X = X / self.position_scale
         bb_to_global = get_bb_frames(
             scaled_X[..., 0, :], scaled_X[..., 1, :], scaled_X[..., 2, :]
@@ -530,8 +718,27 @@ class IPMP_IPA(nn.Module):
 
         return s
 
-    def _get_edge_update(self, h_V, h_E, E_idx, X, mask_attend=None):
+    def _get_edge_update(
+        self,
+        h_V: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: torch.Tensor,
+        X: torch.Tensor,
+        mask_attend: Optional[torch.Tensor] = None,
+    ) -> Any:
         # Get backbone global frames from N, CA, and C
+        """Return edge update.
+
+        Args:
+            h_V: H v value.
+            h_E: H e value.
+            E_idx: E idx value.
+            X: Input tensor.
+            mask_attend: Boolean mask for mask attend.
+
+        Returns:
+            Result of the get edge update operation.
+        """
         scaled_X = X / self.position_scale
         bb_to_global = get_bb_frames(
             scaled_X[..., 0, :], scaled_X[..., 1, :], scaled_X[..., 2, :]
@@ -622,7 +829,28 @@ class IPMP_IPA(nn.Module):
 
         return s
 
-    def forward(self, h_V, h_E, E_idx, X, mask_V=None, mask_attend=None):
+    def forward(
+        self,
+        h_V: torch.Tensor,
+        h_E: torch.Tensor,
+        E_idx: torch.Tensor,
+        X: torch.Tensor,
+        mask_V: Optional[torch.Tensor] = None,
+        mask_attend: Optional[torch.Tensor] = None,
+    ) -> Tuple[Any, ...]:
+        """Run the forward pass.
+
+        Args:
+            h_V: H v value.
+            h_E: H e value.
+            E_idx: E idx value.
+            X: Input tensor.
+            mask_V: Boolean mask for mask v.
+            mask_attend: Boolean mask for mask attend.
+
+        Returns:
+            Computed result values.
+        """
         s = self._get_node_update(h_V, h_E, E_idx, X, mask_attend)
         h_V = self.norm[0](h_V + self.dropout[0](s))
         node_m = self.node_dense(h_V)
@@ -645,21 +873,39 @@ class IPMP_IPA(nn.Module):
 
 
 class PositionalEncodings(nn.Module):
+    """Implement the positional encodings component."""
+
     def __init__(
         self,
-        num_embeddings,
-        period_range=[2, 1000],
-        max_relative_feature=32,
-        af2_relpos=False,
-    ):
+        num_embeddings: int,
+        period_range: List[Any] = [2, 1000],
+        max_relative_feature: int = 32,
+        af2_relpos: bool = False,
+    ) -> None:
+        """Initialize the PositionalEncodings.
+
+        Args:
+            num_embeddings: Number of embeddings.
+            period_range: Period range value.
+            max_relative_feature: Max relative feature value.
+            af2_relpos: Af2 relpos value.
+        """
         super(PositionalEncodings, self).__init__()
         self.num_embeddings = num_embeddings
         self.period_range = period_range
         self.max_relative_feature = max_relative_feature
         self.af2_relpos = af2_relpos
 
-    def _transformer_encoding(self, E_idx):
+    def _transformer_encoding(self, E_idx: torch.Tensor) -> Any:
         # i-j
+        """Execute the transformer encoding operation.
+
+        Args:
+            E_idx: E idx value.
+
+        Returns:
+            Result of the transformer encoding operation.
+        """
         N_nodes = E_idx.size(1)
         ii = torch.arange(N_nodes, dtype=torch.float32, device=E_idx.device).view(
             (1, -1, 1)
@@ -687,8 +933,19 @@ class PositionalEncodings(nn.Module):
 
         return E
 
-    def _af2_encoding(self, E_idx, residue_index=None):
+    def _af2_encoding(
+        self, E_idx: torch.Tensor, residue_index: Optional[torch.Tensor] = None
+    ) -> Any:
         # i-j
+        """Execute the af2 encoding operation.
+
+        Args:
+            E_idx: E idx value.
+            residue_index: Residue index value.
+
+        Returns:
+            Result of the af2 encoding operation.
+        """
         if residue_index is not None:
             offset = residue_index[..., None] - residue_index[..., None, :]
             offset = torch.gather(offset, -1, E_idx)
@@ -706,8 +963,18 @@ class PositionalEncodings(nn.Module):
 
         return relpos
 
-    def forward(self, E_idx, residue_index=None):
+    def forward(
+        self, E_idx: torch.Tensor, residue_index: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """Run the forward pass.
 
+        Args:
+            E_idx: E idx value.
+            residue_index: Residue index value.
+
+        Returns:
+            Computed tensor values.
+        """
         if self.af2_relpos:
             E = self._af2_encoding(E_idx, residue_index)
         else:
@@ -717,20 +984,35 @@ class PositionalEncodings(nn.Module):
 
 
 class ProteinFeatures(nn.Module):
+    """Implement the protein features component."""
+
     def __init__(
         self,
-        edge_features,
-        node_features,
-        num_positional_embeddings=16,
-        num_rbf=16,
-        top_k=30,
-        augment_eps=0.0,
-        dropout=0.1,
-        af2_relpos=True,
-        mask_distances=False,
-        alternate_edge_feats=False,
-    ):
-        """Extract protein features"""
+        edge_features: torch.Tensor,
+        node_features: torch.Tensor,
+        num_positional_embeddings: int = 16,
+        num_rbf: int = 16,
+        top_k: int = 30,
+        augment_eps: float = 0.0,
+        dropout: float = 0.1,
+        af2_relpos: bool = True,
+        mask_distances: bool = False,
+        alternate_edge_feats: bool = False,
+    ) -> None:
+        """Extract protein features
+
+        Args:
+            edge_features: Edge features value.
+            node_features: Node features value.
+            num_positional_embeddings: Number of positional embeddings.
+            num_rbf: Number of rbf.
+            top_k: Top k value.
+            augment_eps: Augment eps value.
+            dropout: Dropout value.
+            af2_relpos: Af2 relpos value.
+            mask_distances: Boolean mask for mask distances.
+            alternate_edge_feats: Alternate edge feats value.
+        """
         super(ProteinFeatures, self).__init__()
         self.edge_features = edge_features
         self.node_features = node_features
@@ -762,8 +1044,19 @@ class ProteinFeatures(nn.Module):
         self.edge_embedding = nn.Linear(edge_in, edge_features, bias=True)
         self.norm_edges = nn.LayerNorm(edge_features)
 
-    def _dist(self, X, mask, eps=1e-6):
-        """Pairwise euclidean distances"""
+    def _dist(
+        self, X: torch.Tensor, mask: torch.Tensor, eps: float = 1e-6
+    ) -> Tuple[Any, ...]:
+        """Pairwise euclidean distances
+
+        Args:
+            X: Input tensor.
+            mask: Boolean mask for mask.
+            eps: Eps value.
+
+        Returns:
+            Computed result values.
+        """
         # Convolutional network on NCHW
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
@@ -779,8 +1072,16 @@ class ProteinFeatures(nn.Module):
 
         return D_neighbors, E_idx, mask_neighbors
 
-    def _rbf(self, D):
+    def _rbf(self, D: torch.Tensor) -> torch.Tensor:
         # Distance radial basis function
+        """Execute the rbf operation.
+
+        Args:
+            D: D value.
+
+        Returns:
+            Result of the rbf operation.
+        """
         D_min, D_max, D_count = 0.0, 20.0, self.num_rbf
         D_mu = torch.linspace(D_min, D_max, D_count, device=D.device)
         D_mu = D_mu.view([1, 1, 1, -1])
@@ -801,7 +1102,19 @@ class ProteinFeatures(nn.Module):
         # exit(0)
         return RBF
 
-    def _get_rbf(self, A, B, E_idx):
+    def _get_rbf(
+        self, A: torch.Tensor, B: torch.Tensor, E_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Return rbf.
+
+        Args:
+            A: A value.
+            B: B value.
+            E_idx: E idx value.
+
+        Returns:
+            Result of the get rbf operation.
+        """
         D_A_B = torch.sqrt(
             torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
         )  # [B, L, L]
@@ -811,15 +1124,36 @@ class ProteinFeatures(nn.Module):
         RBF_A_B = self._rbf(D_A_B_neighbors)
         return RBF_A_B
 
-    def _impute_CB(self, N, CA, C):
+    def _impute_CB(self, N: torch.Tensor, CA: torch.Tensor, C: torch.Tensor) -> Any:
+        """Execute the impute cb operation.
+
+        Args:
+            N: N value.
+            CA: Ca value.
+            C: C value.
+
+        Returns:
+            Result of the impute CB operation.
+        """
         b = CA - N
         c = C - CA
         a = torch.cross(b, c, dim=-1)
         Cb = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA
         return Cb
 
-    def _atomic_distances(self, X, E_idx, X_mask):
+    def _atomic_distances(
+        self, X: torch.Tensor, E_idx: torch.Tensor, X_mask: torch.Tensor
+    ) -> Any:
+        """Execute the atomic distances operation.
 
+        Args:
+            X: Input tensor.
+            E_idx: E idx value.
+            X_mask: Boolean mask for x.
+
+        Returns:
+            Result of the atomic distances operation.
+        """
         RBF_all = []
         for i in range(X.shape[-2]):
             for j in range(X.shape[-2]):
@@ -833,10 +1167,16 @@ class ProteinFeatures(nn.Module):
 
         return RBF_all
 
-    def _quaternions(self, R):
+    def _quaternions(self, R: torch.Tensor) -> Any:
         """Convert a batch of 3D rotations [R] to quaternions [Q]
         R [...,3,3]
         Q [...,4]
+
+        Args:
+            R: Input tensor.
+
+        Returns:
+            Result of the quaternions operation.
         """
         # Simple Wikipedia version
         # en.wikipedia.org/wiki/Rotation_matrix#Quaternion
@@ -863,10 +1203,19 @@ class ProteinFeatures(nn.Module):
 
         return Q
 
-    def _orientations_coarse(self, X, E_idx):
+    def _orientations_coarse(self, X: torch.Tensor, E_idx: torch.Tensor) -> Any:
         # Pair features
 
         # Shifted slices of unit vectors
+        """Execute the orientations coarse operation.
+
+        Args:
+            X: Input tensor.
+            E_idx: E idx value.
+
+        Returns:
+            Result of the orientations coarse operation.
+        """
         dX = X[:, 1:, :] - X[:, :-1, :]
         U = F.normalize(dX, dim=-1)
         u_2 = U[:, :-2, :]
@@ -899,8 +1248,28 @@ class ProteinFeatures(nn.Module):
 
         return O_features
 
-    def forward(self, X, S, BB_D, mask, residue_index=None, X_mask=None):
-        """Featurize coordinates as an attributed graph"""
+    def forward(
+        self,
+        X: torch.Tensor,
+        S: torch.Tensor,
+        BB_D: torch.Tensor,
+        mask: torch.Tensor,
+        residue_index: Optional[torch.Tensor] = None,
+        X_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[Any, ...]:
+        """Featurize coordinates as an attributed graph
+
+        Args:
+            X: Input tensor.
+            S: Input tensor.
+            BB_D: Bb d value.
+            mask: Boolean mask for mask.
+            residue_index: Residue index value.
+            X_mask: Boolean mask for X.
+
+        Returns:
+            Computed result values.
+        """
 
         # Data augmentation
         if self.training and self.augment_eps > 0:
@@ -954,9 +1323,22 @@ class ProteinFeatures(nn.Module):
         return V, E, E_idx, X
 
 
-def get_atom14_coords(X, S, BB_D, SC_D):
+def get_atom14_coords(
+    X: torch.Tensor, S: torch.Tensor, BB_D: torch.Tensor, SC_D: torch.Tensor
+) -> Any:
 
     # Convert angles to sin/cos
+    """Return atom14 coords.
+
+    Args:
+        X: Input tensor.
+        S: Input tensor.
+        BB_D: Bb d value.
+        SC_D: Sc d value.
+
+    Returns:
+        Result of the get atom14 coords operation.
+    """
     BB_D_sincos = torch.stack((torch.sin(BB_D), torch.cos(BB_D)), dim=-1)
     SC_D_sincos = torch.stack((torch.sin(SC_D), torch.cos(SC_D)), dim=-1)
 
@@ -976,7 +1358,7 @@ def get_atom14_coords(X, S, BB_D, SC_D):
 
     # Make default frames
     default_frames = torch.tensor(
-        rc.restype_rigid_group_default_frame,
+        rc.RESTYPE_RIGID_GROUP_DEFAULT_FRAME,
         dtype=torch.float32,
         device=X.device,
         requires_grad=False,
@@ -984,12 +1366,12 @@ def get_atom14_coords(X, S, BB_D, SC_D):
 
     # Make group ids
     group_idx = torch.tensor(
-        rc.restype_atom14_to_rigid_group, device=X.device, requires_grad=False
+        rc.RESTYPE_ATOM14_TO_RIGID_GROUP, device=X.device, requires_grad=False
     )
 
     # Make atom mask
     atom_mask = torch.tensor(
-        rc.restype_atom14_mask,
+        rc.RESTYPE_ATOM14_MASK,
         dtype=torch.float32,
         device=X.device,
         requires_grad=False,
@@ -997,7 +1379,7 @@ def get_atom14_coords(X, S, BB_D, SC_D):
 
     # Make literature positions
     lit_positions = torch.tensor(
-        rc.restype_atom14_rigid_group_positions,
+        rc.RESTYPE_ATOM14_RIGID_GROUP_POSITIONS,
         dtype=torch.float32,
         device=X.device,
         requires_grad=False,
@@ -1020,6 +1402,8 @@ def get_atom14_coords(X, S, BB_D, SC_D):
 
 
 class PIPPack(nn.Module):
+    """Implement the pippack component."""
+
     def __init__(
         self,
         node_features: int = 128,
@@ -1049,7 +1433,32 @@ class PIPPack(nn.Module):
             "offset_mse_loss_weight": 1.0,
         },
     ) -> None:
-        """Graph labeling network"""
+        """Graph labeling network
+
+        Args:
+            node_features: Node features value.
+            edge_features: Edge features value.
+            hidden_dim: Dimension for hidden.
+            num_mpnn_layers: Number of mpnn layers.
+            k_neighbors: K neighbors value.
+            augment_eps: Augment eps value.
+            use_ipmp: Use ipmp value.
+            use_ipmp_ipa: Use ipmp ipa value.
+            n_points: Number of points.
+            dropout: Dropout value.
+            act: Act value.
+            predict_bin_chi: Predict bin chi value.
+            n_chi_bins: Number of chi bins.
+            predict_offset: Predict offset value.
+            position_scale: Position scale value.
+            recycle_strategy: Recycle strategy value.
+            recycle_SC_D_sc: Recycle sc d sc value.
+            recycle_SC_D_probs: Recycle sc d probs value.
+            recycle_X: Recycle x value.
+            mask_distances: Boolean mask for mask distances.
+            alternate_edge_feats: Alternate edge feats value.
+            loss: Loss value.
+        """
         super().__init__()
 
         # Hyperparameters
@@ -1159,9 +1568,22 @@ class PIPPack(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def _chi_prediction_from_probs(
-        self, chi_probs, chi_bin_offset=None, strategy="mode"
-    ):
+        self,
+        chi_probs: torch.Tensor,
+        chi_bin_offset: Optional[torch.Tensor] = None,
+        strategy: str = "mode",
+    ) -> Any:
         # One-hot encode predicted chi bin
+        """Execute the chi prediction from probs operation.
+
+        Args:
+            chi_probs: Chi probs value.
+            chi_bin_offset: Chi bin offset value.
+            strategy: Strategy value.
+
+        Returns:
+            Result of the chi prediction from probs operation.
+        """
         if strategy == "mode":
             chi_bin = torch.argmax(chi_probs, dim=-1)
         elif strategy == "sample":
@@ -1203,6 +1625,11 @@ class PIPPack(nn.Module):
 
     @property
     def metric_names(self) -> Sequence[str]:
+        """Execute the metric names operation.
+
+        Returns:
+            Computed result items.
+        """
         metrics = [
             "rotamer recovery",
             "rmsd",
@@ -1219,6 +1646,11 @@ class PIPPack(nn.Module):
 
     @property
     def monitor_metric(self) -> str:
+        """Execute the monitor metric operation.
+
+        Returns:
+            Result of the monitor metric operation.
+        """
         if self.predict_bin_chi:
             return "val chi nll loss mean"
         else:
@@ -1226,14 +1658,27 @@ class PIPPack(nn.Module):
 
     def compute_loss(
         self,
-        output,
-        batch,
-        use_sc_bf_mask=False,
-        _return_breakdown=False,
-        _logger=BlackHole(),
-        _log_prefix="train",
-    ):
+        output: Dict[str, torch.Tensor],
+        batch: Any,
+        use_sc_bf_mask: bool = False,
+        _return_breakdown: bool = False,
+        _logger: Any = BlackHole(),
+        _log_prefix: str = "train",
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, torch.Tensor]]]:
         # Update side chain chi mask based on b-factors, if necessary
+        """Compute loss.
+
+        Args:
+            output: Output value.
+            batch: Batch value.
+            use_sc_bf_mask: Boolean mask for use sc bf.
+            _return_breakdown: Return breakdown value.
+            _logger: Logger value.
+            _log_prefix: Log prefix value.
+
+        Returns:
+            Result of the compute loss operation.
+        """
         if use_sc_bf_mask:
             SC_D_mask = batch.SC_D_mask * batch.SC_D_BF_mask
         else:
@@ -1318,9 +1763,18 @@ class PIPPack(nn.Module):
 
         return total_loss, losses
 
-    def forward(self, batch, n_recycle=0):
+    def forward(self, batch: Any, n_recycle: int = 0) -> Dict[str, torch.Tensor]:
 
         # Add empty previous prediction
+        """Run the forward pass.
+
+        Args:
+            batch: Batch value.
+            n_recycle: Number of recycle.
+
+        Returns:
+            Computed tensor values.
+        """
         prevs = {
             "pred_X": torch.zeros_like(batch.X),
             "pred_X_mask": torch.concatenate(
@@ -1353,7 +1807,7 @@ class PIPPack(nn.Module):
                     chi_pred = outputs["norm_chi"]
                     chi_pred = torch.atan2(chi_pred[..., 0], chi_pred[..., 1])
                 aatype_chi_mask = torch.tensor(
-                    rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
+                    rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
                 )[batch.S]
                 chi_pred = aatype_chi_mask * chi_pred
                 atom14_xyz = get_atom14_coords(batch.X, batch.S, batch.BB_D, chi_pred)
@@ -1377,7 +1831,7 @@ class PIPPack(nn.Module):
             chi_pred = outputs["norm_chi"]
             chi_pred = torch.atan2(chi_pred[..., 0], chi_pred[..., 1])
         aatype_chi_mask = torch.tensor(
-            rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
+            rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
         )[batch.S]
         chi_pred = aatype_chi_mask * chi_pred
         atom14_xyz = get_atom14_coords(batch.X, batch.S, batch.BB_D, chi_pred)
@@ -1389,8 +1843,18 @@ class PIPPack(nn.Module):
 
         return outputs
 
-    def single_forward(self, batch, prevs):
-        """Graph-conditioned sequence model"""
+    def single_forward(
+        self, batch: Any, prevs: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
+        """Graph-conditioned sequence model
+
+        Args:
+            batch: Batch value.
+            prevs: Prevs value.
+
+        Returns:
+            Result of the single forward operation.
+        """
         # Unpack batch
         X = torch.cat((batch.X[..., :4, :], prevs["pred_X"][..., 4:, :]), dim=-2)
         S = batch.S
@@ -1476,9 +1940,21 @@ class PIPPack(nn.Module):
 
         return outputs
 
-    def sample(self, batch, temperature=1.0, n_recycle=0):
+    def sample(
+        self, batch: Any, temperature: float = 1.0, n_recycle: int = 0
+    ) -> Dict[str, torch.Tensor]:
 
         # Add empty previous prediction
+        """Execute the sample operation.
+
+        Args:
+            batch: Batch value.
+            temperature: Temperature value.
+            n_recycle: Number of recycle.
+
+        Returns:
+            Result of the sample operation.
+        """
         prevs = {
             "pred_X": torch.zeros_like(batch.X),
             "pred_X_mask": torch.concatenate(
@@ -1511,7 +1987,7 @@ class PIPPack(nn.Module):
                     chi_pred = sample_out["norm_chi"]
                     chi_pred = torch.atan2(chi_pred[..., 0], chi_pred[..., 1])
                 aatype_chi_mask = torch.tensor(
-                    rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
+                    rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
                 )[batch.S]
                 chi_pred = aatype_chi_mask * chi_pred
                 atom14_xyz = get_atom14_coords(batch.X, batch.S, batch.BB_D, chi_pred)
@@ -1535,7 +2011,7 @@ class PIPPack(nn.Module):
                 chi_pred = sample_out["norm_chi"]
                 chi_pred = torch.atan2(chi_pred[..., 0], chi_pred[..., 1])
             aatype_chi_mask = torch.tensor(
-                rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
+                rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
             )[batch.S]
             chi_pred = aatype_chi_mask * chi_pred
             atom14_xyz = get_atom14_coords(batch.X, batch.S, batch.BB_D, chi_pred)
@@ -1547,8 +2023,22 @@ class PIPPack(nn.Module):
 
         return sample_out
 
-    def single_sample(self, batch, prevs, temperature=1.0):
-        """Autoregressive decoding of a model"""
+    def single_sample(
+        self,
+        batch: Any,
+        prevs: Dict[str, torch.Tensor],
+        temperature: float = 1.0,
+    ) -> Dict[str, torch.Tensor]:
+        """Autoregressive decoding of a model
+
+        Args:
+            batch: Batch value.
+            prevs: Prevs value.
+            temperature: Temperature value.
+
+        Returns:
+            Result of the single sample operation.
+        """
         # Unpack batch
         X = torch.cat((batch.X[..., :4, :], prevs["pred_X"][..., 4:, :]), dim=-2)
         S = batch.S
@@ -1603,7 +2093,7 @@ class PIPPack(nn.Module):
         # Chi prediction
         if not self.predict_bin_chi:
             chi_mask = torch.tensor(
-                rc.chi_angles_mask + [[0.0, 0.0, 0.0, 0.0]], device=X.device
+                rc.CHI_ANGLES_MASK + [[0.0, 0.0, 0.0, 0.0]], device=X.device
             )[S].unsqueeze(-1)
             unnorm_chi = self.W_out_chi(h_VS)
             unnorm_chi = unnorm_chi.view(X.shape[0], X.shape[1], 4, 2)
@@ -1619,7 +2109,7 @@ class PIPPack(nn.Module):
             norm_chi = chi_mask * norm_chi
         else:
             chi_mask = torch.tensor(
-                rc.chi_angles_mask + [[0.0, 0.0, 0.0, 0.0]], device=X.device
+                rc.CHI_ANGLES_MASK + [[0.0, 0.0, 0.0, 0.0]], device=X.device
             )[S].unsqueeze(-1)
             h_VS = torch.cat([h_V, h_S], dim=-1)
             if temperature > 0.0:
@@ -1658,12 +2148,25 @@ class PIPPack(nn.Module):
 
 
 class PIPPackFineTune(PIPPack):
-    def __init__(self, gumbel_temp=1.0, **kwargs):
+    """Implement the pippack fine tune component."""
+
+    def __init__(self, gumbel_temp: float = 1.0, **kwargs: Dict[str, Any]) -> None:
+        """Initialize the PIPPackFineTune.
+
+        Args:
+            gumbel_temp: Gumbel temp value.
+            kwargs: Additional arguments forwarded to the implementation.
+        """
         self.gumbel_temp = gumbel_temp
         super().__init__(**kwargs)
 
     @property
     def metric_names(self) -> Sequence[str]:
+        """Execute the metric names operation.
+
+        Returns:
+            Computed result items.
+        """
         metrics = ["rotamer recovery", "rmsd", "clash loss", "proline loss"]
 
         if self.predict_bin_chi:
@@ -1675,8 +2178,19 @@ class PIPPackFineTune(PIPPack):
 
         return metrics
 
-    def _gumbel_sample_from_logits(self, chi_logits, chi_bin_offset=None):
+    def _gumbel_sample_from_logits(
+        self, chi_logits: torch.Tensor, chi_bin_offset: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
         # Sample from Gumbel-Softmax distribution
+        """Execute the gumbel sample from logits operation.
+
+        Args:
+            chi_logits: Chi logits value.
+            chi_bin_offset: Chi bin offset value.
+
+        Returns:
+            Result of the gumbel sample from logits operation.
+        """
         gumbel_chi_bin = F.gumbel_softmax(chi_logits, self.gumbel_temp, hard=True)
 
         # Determine actual chi value from bin
@@ -1707,7 +2221,16 @@ class PIPPackFineTune(PIPPack):
 
         return sampled_chi
 
-    def forward(self, batch, n_recycle=0):
+    def forward(self, batch: Any, n_recycle: int = 0) -> Dict[str, torch.Tensor]:
+        """Run the forward pass.
+
+        Args:
+            batch: Batch value.
+            n_recycle: Number of recycle.
+
+        Returns:
+            Computed tensor values.
+        """
         outputs = super().forward(batch, n_recycle)
 
         # Add a gumbel sample to outputs
@@ -1715,7 +2238,7 @@ class PIPPackFineTune(PIPPack):
             outputs["chi_logits"], outputs.get("chi_bin_offset", None)
         )
         aatype_chi_mask = torch.tensor(
-            rc.chi_mask_atom14, dtype=torch.float32, device=gumbel_sample.device
+            rc.CHI_MASK_ATOM14, dtype=torch.float32, device=gumbel_sample.device
         )[batch.S]
         chi_pred = aatype_chi_mask * gumbel_sample
 
@@ -1727,14 +2250,27 @@ class PIPPackFineTune(PIPPack):
 
     def compute_loss(
         self,
-        output,
-        batch,
-        use_sc_bf_mask=False,
-        _return_breakdown=False,
-        _logger=BlackHole(),
-        _log_prefix="train",
-    ):
+        output: Dict[str, torch.Tensor],
+        batch: Any,
+        use_sc_bf_mask: bool = False,
+        _return_breakdown: bool = False,
+        _logger: Any = BlackHole(),
+        _log_prefix: str = "train",
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[str, torch.Tensor]]]:
         # Update side chain chi mask based on b-factors, if necessary
+        """Compute loss.
+
+        Args:
+            output: Output value.
+            batch: Batch value.
+            use_sc_bf_mask: Boolean mask for use sc bf.
+            _return_breakdown: Return breakdown value.
+            _logger: Logger value.
+            _log_prefix: Log prefix value.
+
+        Returns:
+            Result of the compute loss operation.
+        """
         if use_sc_bf_mask:
             SC_D_mask = batch.SC_D_mask * batch.SC_D_BF_mask
         else:

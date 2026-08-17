@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import os
 import pickle
@@ -5,7 +7,7 @@ import shutil
 import tarfile
 import urllib.request
 from contextlib import closing
-from typing import *
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import torch
@@ -13,7 +15,7 @@ import torch
 Array = Union[np.ndarray, torch.Tensor]
 
 
-def create_subdirs(root_dir: str, subdirs: Sequence[str]):
+def create_subdirs(root_dir: str, subdirs: Sequence[str]) -> None:
     """Creates subdirectories of a root directory.
 
     Args:
@@ -182,10 +184,29 @@ def robust_normalize(
 
 
 def count_parameters(model: torch.nn.Module) -> int:
+    """Execute the count parameters operation.
+
+    Args:
+        model: Model value.
+
+    Returns:
+        Computed integer value.
+    """
     return sum(p.numel() for p in model.parameters())
 
 
-def get_mean_clashscore(dir, clashscore_file="clashscore_scores.txt"):
+def get_mean_clashscore(
+    dir: str, clashscore_file: str = "clashscore_scores.txt"
+) -> Any:
+    """Return mean clashscore.
+
+    Args:
+        dir: Dir value.
+        clashscore_file: Path for clashscore.
+
+    Returns:
+        Result of the get mean clashscore operation.
+    """
     with open(os.path.join(dir, clashscore_file), "r") as f:
         lines = f.readlines()
 
@@ -195,7 +216,16 @@ def get_mean_clashscore(dir, clashscore_file="clashscore_scores.txt"):
     return np.mean(scores)
 
 
-def get_rotamer_evals(dir, rotamer_eval_file="rotamer_evals.txt"):
+def get_rotamer_evals(dir: str, rotamer_eval_file: str = "rotamer_evals.txt") -> Any:
+    """Return rotamer evals.
+
+    Args:
+        dir: Dir value.
+        rotamer_eval_file: Path for rotamer eval.
+
+    Returns:
+        Result of the get rotamer evals operation.
+    """
     with open(os.path.join(dir, rotamer_eval_file), "r") as f:
         lines = f.readlines()
 
@@ -212,18 +242,52 @@ def get_rotamer_evals(dir, rotamer_eval_file="rotamer_evals.txt"):
     return rotamer_evals
 
 
-def get_packing_stats(dir, stats_file="packing_stats.pkl"):
+def get_packing_stats(dir: str, stats_file: str = "packing_stats.pkl") -> Any:
+    """Return packing stats.
+
+    Args:
+        dir: Dir value.
+        stats_file: Path for stats.
+
+    Returns:
+        Result of the get packing stats operation.
+    """
     with open(os.path.join(dir, stats_file), "rb") as f:
         stats = pickle.load(f)
 
     return stats
 
 
-def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash=False):
+def get_stats_mean_std(
+    dir: str,
+    subdirs: List[Any] = [],
+    stats_file: str = "packing_stats.pkl",
+    no_clash: bool = False,
+) -> Tuple[Any, ...]:
+    """Return stats mean std.
+
+    Args:
+        dir: Dir value.
+        subdirs: Subdirs value.
+        stats_file: Path for stats.
+        no_clash: No clash value.
+
+    Returns:
+        Computed result values.
+    """
     if subdirs == []:
         subdirs = [f for f in os.listdir(dir) if os.path.isdir(f)]
 
-    def recursive_dict_append(d1, d2):
+    def recursive_dict_append(d1: Dict[str, Any], d2: Dict[str, Any]) -> Any:
+        """Execute the recursive dict append operation.
+
+        Args:
+            d1: D1 value.
+            d2: D2 value.
+
+        Returns:
+            Result of the recursive dict append operation.
+        """
         for key in d1:
             if isinstance(d1[key], dict):
                 recursive_dict_append(d1[key], d2[key])
@@ -232,7 +296,16 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
 
         return d2
 
-    def leaf_list_clone(d1, d2):
+    def leaf_list_clone(d1: Dict[str, Any], d2: Dict[str, Any]) -> Any:
+        """Execute the leaf list clone operation.
+
+        Args:
+            d1: D1 value.
+            d2: D2 value.
+
+        Returns:
+            Result of the leaf list clone operation.
+        """
         for key in d1:
             if isinstance(d1[key], dict):
                 d2[key] = {}
@@ -242,7 +315,15 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
 
         return d2
 
-    def leaf_mean_clone(d):
+    def leaf_mean_clone(d: Dict[str, Any]) -> Any:
+        """Execute the leaf mean clone operation.
+
+        Args:
+            d: D value.
+
+        Returns:
+            Result of the leaf mean clone operation.
+        """
         d2 = {}
         for key in d:
             if isinstance(d[key], dict):
@@ -254,7 +335,15 @@ def get_stats_mean_std(dir, subdirs=[], stats_file="packing_stats.pkl", no_clash
 
         return d2
 
-    def leaf_std_clone(d):
+    def leaf_std_clone(d: Dict[str, Any]) -> Any:
+        """Execute the leaf std clone operation.
+
+        Args:
+            d: D value.
+
+        Returns:
+            Result of the leaf std clone operation.
+        """
         d2 = {}
         for key in d:
             if isinstance(d[key], dict):

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-export PYTHONPATH=$PWD/src:${PYTHONPATH:-}
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
+export PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 DATA_DIR="${DATA_DIR:-dataset}"
 OUT_DIR="data/cluster/mmseqs"
@@ -9,7 +14,7 @@ for split in train valid test_metal test_small_molecule test_nucleotide; do
   parsed_dir="${DATA_DIR}/${split}_parsed"
   if [[ -d "${parsed_dir}" ]]; then
     echo "[extract] ${parsed_dir}"
-    python3 -m adflip.data.export_parsed_sequences \
+    python3 -c 'from adflip.data.export_parsed_sequences import main; raise SystemExit(main())' \
       --parsed_dir "${parsed_dir}" \
       --fasta_out "${OUT_DIR}/${split}_chains.fasta" \
       --metadata_out "${OUT_DIR}/${split}_chains_meta.csv" \

@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, Mapping
+from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -31,7 +33,7 @@ class AbstractDiscreteMaskedFlow(ABC):
         time_epsilon: float = 1e-4,
         temperature: float = 1.0,
         noise: float = 1.0,
-    ):
+    ) -> None:
         """Initialize the shared absorbing-mask process.
 
         Args:
@@ -62,9 +64,9 @@ class AbstractDiscreteMaskedFlow(ABC):
     @abstractmethod
     def endpoint_logits(
         self,
-        state: Any,
+        state: torch.Tensor,
         time: torch.Tensor,
-        extra_args: Mapping[str, torch.Tensor] | None = None,
+        extra_args: Optional[Mapping[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         """Predict clean endpoint logits from a subclass-specific state.
 
@@ -79,32 +81,36 @@ class AbstractDiscreteMaskedFlow(ABC):
         """
 
     @abstractmethod
-    def sample(self, *args: Any, **kwargs: Any) -> Any:
+    def sample(self, *args: Sequence[Any], **kwargs: Dict[str, Any]) -> Any:
         """Run the subclass-specific fixed-step sampling workflow.
 
         Args:
             *args: Positional arguments defined by the concrete workflow.
             **kwargs: Keyword arguments defined by the concrete workflow.
 
+            args: Additional arguments forwarded to the implementation.
+            kwargs: Additional arguments forwarded to the implementation.
         Returns:
             Samples in the representation defined by the concrete workflow.
         """
 
     @abstractmethod
-    def adaptive_sample(self, *args: Any, **kwargs: Any) -> Any:
+    def adaptive_sample(self, *args: Sequence[Any], **kwargs: Dict[str, Any]) -> Any:
         """Run the subclass-specific adaptive sampling workflow.
 
         Args:
             *args: Positional arguments defined by the concrete workflow.
             **kwargs: Keyword arguments defined by the concrete workflow.
 
+            args: Additional arguments forwarded to the implementation.
+            kwargs: Additional arguments forwarded to the implementation.
         Returns:
             Samples in the representation defined by the concrete workflow.
         """
 
     def sample_training_state(
         self, x_1: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample a masked training state for clean one-hot endpoints.
 
         Args:
@@ -136,8 +142,8 @@ class AbstractDiscreteMaskedFlow(ABC):
         samples: torch.Tensor,
         time: torch.Tensor,
         step_size: float,
-        temperature: float | None = None,
-        noise: float | None = None,
+        temperature: Optional[float] = None,
+        noise: Optional[float] = None,
     ) -> torch.Tensor:
         """Compute normalized categorical weights for one jump-process step.
 
@@ -212,7 +218,7 @@ class AbstractDiscreteMaskedFlow(ABC):
         step_weights: torch.Tensor,
         endpoint_logits: torch.Tensor,
         argmax: bool,
-        temperature: float | None = None,
+        temperature: Optional[float] = None,
     ) -> torch.Tensor:
         """Draw the next token state from transition weights.
 
@@ -251,7 +257,7 @@ class AbstractDiscreteMaskedFlow(ABC):
         samples: torch.Tensor,
         logits: torch.Tensor,
         argmax: bool,
-        temperature: float | None = None,
+        temperature: Optional[float] = None,
     ) -> torch.Tensor:
         """Replace remaining mask tokens with endpoint predictions.
 
@@ -284,7 +290,7 @@ class AbstractDiscreteMaskedFlow(ABC):
         self,
         weights: torch.Tensor,
         *,
-        fallback_weights: torch.Tensor | None = None,
+        fallback_weights: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Remove mask-token mass and repair rows without non-mask mass.
 

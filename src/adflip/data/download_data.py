@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import concurrent.futures
 import json
@@ -8,24 +10,38 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any, List, Tuple
 
 import requests
 from tqdm.auto import tqdm
 
 DEFAULT_BASE_URL = "https://files.rcsb.org/download/{pdb_id}.cif.gz"
 
-_thread_local = threading.local()
+_THREAD_LOCAL = threading.local()
 
 
-def _get_session():
-    if not hasattr(_thread_local, "session"):
+def _get_session() -> requests.Session:
+    """Return session.
+
+    Returns:
+        Result of the get session operation.
+    """
+    if not hasattr(_THREAD_LOCAL, "session"):
         session = requests.Session()
         session.headers.update({"User-Agent": "ADFLIP-downloader/1.0"})
-        _thread_local.session = session
-    return _thread_local.session
+        _THREAD_LOCAL.session = session
+    return _THREAD_LOCAL.session
 
 
-def _normalize_ids(data):
+def _normalize_ids(data: Any) -> List[Any]:
+    """Execute the normalize ids operation.
+
+    Args:
+        data: Data value.
+
+    Returns:
+        Result of the normalize ids operation.
+    """
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
@@ -37,8 +53,28 @@ def _normalize_ids(data):
 
 
 def _download_one(
-    pdb_id, out_dir, base_url, overwrite, retries, timeout, subdir_prefix
-):
+    pdb_id: str,
+    out_dir: str,
+    base_url: str,
+    overwrite: bool,
+    retries: int,
+    timeout: int,
+    subdir_prefix: bool,
+) -> Tuple[Any, ...]:
+    """Download the required data one.
+
+    Args:
+        pdb_id: Pdb id value.
+        out_dir: Path for out.
+        base_url: Base url value.
+        overwrite: Overwrite value.
+        retries: Retries value.
+        timeout: Timeout value.
+        subdir_prefix: Subdir prefix value.
+
+    Returns:
+        Computed result values.
+    """
     pdb_id = str(pdb_id).strip()
     if not pdb_id:
         return (pdb_id, "skip-empty")
@@ -81,7 +117,12 @@ def _download_one(
     return (pdb_id_lower, f"fail: {last_err}")
 
 
-def main():
+def main() -> int:
+    """Run the command-line entry point.
+
+    Returns:
+        Computed integer value.
+    """
     parser = argparse.ArgumentParser(
         description="Download PDB mmCIF files from a JSON list."
     )
@@ -153,7 +194,3 @@ def main():
 
     print(f"done. ok={ok} skip={skip} 404={not_found} fail={fail}")
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

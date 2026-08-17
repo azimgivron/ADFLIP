@@ -1,26 +1,36 @@
+from __future__ import annotations
+
 import dataclasses
 import gzip
 import os
 from collections import OrderedDict
 from importlib import resources
-from typing import List
+from typing import Any, Dict, List, Optional, OrderedDict, Union
 
 import numpy as np
 import prody
 import torch
-from torch import Tensor
 from Bio.Data import IUPACData
 from Bio.PDB import PDBIO, MMCIFParser, PDBParser, Select
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from scipy.spatial import cKDTree
+from torch import Tensor
 
 
 def _read_misc_lines(filename: str) -> List[str]:
+    """Read misc lines.
+
+    Args:
+        filename: Filename value.
+
+    Returns:
+        Computed result items.
+    """
     resource = resources.files(__package__).joinpath("misc", filename)
     return [line.strip() for line in resource.read_text().splitlines()]
 
 
-restype_1to3 = {
+RESTYPE_1TO3 = {
     "A": "ALA",
     "R": "ARG",
     "N": "ASN",
@@ -43,82 +53,142 @@ restype_1to3 = {
     "V": "VAL",
     "X": "<UNK>",
 }
-restype_3to1 = {v: k for k, v in restype_1to3.items()}
+RESTYPE_3TO1 = {v: k for k, v in RESTYPE_1TO3.items()}
 
 
 # Tokenization goes from proteins to nucleic acids, to single atoms
-residue_tokens = OrderedDict()
+RESIDUE_TOKENS = OrderedDict()
 
-residue_tokens["<PAD>"] = len(residue_tokens)
-residue_tokens["<MASK>"] = len(residue_tokens)
+RESIDUE_TOKENS["<PAD>"] = len(RESIDUE_TOKENS)
+RESIDUE_TOKENS["<MASK>"] = len(RESIDUE_TOKENS)
 
 
-def add_flag_tokens(flag):
+def add_flag_tokens(flag: Any) -> None:
+    """Execute the add flag tokens operation.
+
+    Args:
+        flag: Flag value.
+    """
     for residue in prody.flagDefinition(flag):
-        if residue not in residue_tokens:
-            residue_tokens[residue] = len(residue_tokens)
+        if residue not in RESIDUE_TOKENS:
+            RESIDUE_TOKENS[residue] = len(RESIDUE_TOKENS)
 
 
 add_flag_tokens("stdaa")
-residue_tokens["<UNK>"] = len(residue_tokens)
+RESIDUE_TOKENS["<UNK>"] = len(RESIDUE_TOKENS)
 
 # Extra tokens for ligands
 add_flag_tokens("nucleotide")
 # add_flag_tokens("nonstdaa")
 # add_flag_tokens("nucleic")
 # add_flag_tokens("ion")
-# residue_tokens["<GLYCAN>"] = len(residue_tokens)
+# RESIDUE_TOKENS["<GLYCAN>"] = len(RESIDUE_TOKENS)
 
 
-token_to_index = {token: i for i, token in enumerate(residue_tokens)}
-index_to_token = {i: token for i, token in enumerate(residue_tokens)}
-num_residue_tokens = len(residue_tokens)
+TOKEN_TO_INDEX = {token: i for i, token in enumerate(RESIDUE_TOKENS)}
+INDEX_TO_TOKEN = {i: token for i, token in enumerate(RESIDUE_TOKENS)}
+NUM_RESIDUE_TOKENS = len(RESIDUE_TOKENS)
 
-# num_protein_tokens = residue_tokens["XAA"] + 1
+# NUM_PROTEIN_TOKENS = RESIDUE_TOKENS["XAA"] + 1
 
 
 # Residue type sets — imported from centralized config
 from adflip.data.residue_config import ION, NUCLEOTIDE, get_protein_residues
 
-nucleotide_residues = NUCLEOTIDE
-ion_residues = ION
+NUCLEOTIDE_RESIDUES = NUCLEOTIDE
+ION_RESIDUES = ION
 
 
 # Element tokens
-elements = list(IUPACData.atom_weights.keys())
-_ = elements.pop(elements.index("H"))  # Remove hydrogen
-elements.append("<ATOM_UNK>")
-elements.append("<ATOM_PAD>")
-elements = [e.upper() for e in elements]
+ELEMENTS = list(IUPACData.atom_weights.keys())
+ELEMENTS.pop(ELEMENTS.index("H"))  # Remove hydrogen
+ELEMENTS.append("<ATOM_UNK>")
+ELEMENTS.append("<ATOM_PAD>")
+ELEMENTS = [e.upper() for e in ELEMENTS]
 
-element_to_index = {element: i for i, element in enumerate(elements)}
-num_element_tokens = len(elements)
+ELEMENT_TO_INDEX = {element: i for i, element in enumerate(ELEMENTS)}
+NUM_ELEMENT_TOKENS = len(ELEMENTS)
 
 
 # AF3 crystallization aids
-af3_crystallization_aids = _read_misc_lines("af3_crystallization_aids.txt")
-af3_crystallization_aids = set(af3_crystallization_aids)
+AF3_CRYSTALLIZATION_AIDS = _read_misc_lines("af3_crystallization_aids.txt")
+AF3_CRYSTALLIZATION_AIDS = set(AF3_CRYSTALLIZATION_AIDS)
 
 
 # AF3 ligand exclusion list
-af3_ligands_excluded = _read_misc_lines("af3_ligands_excluded.txt")
-af3_ligands_excluded = set(af3_ligands_excluded)
+AF3_LIGANDS_EXCLUDED = _read_misc_lines("af3_ligands_excluded.txt")
+AF3_LIGANDS_EXCLUDED = set(AF3_LIGANDS_EXCLUDED)
 
 # Glycans
-af3_glycans = _read_misc_lines("af3_glycans.txt")
-af3_glycans = set(af3_glycans)
+AF3_GLYCANS = _read_misc_lines("af3_glycans.txt")
+AF3_GLYCANS = set(AF3_GLYCANS)
+
+_LEGACY_CONSTANT_NAMES = {
+    "restype_1to3": "RESTYPE_1TO3",
+    "restype_3to1": "RESTYPE_3TO1",
+    "residue_tokens": "RESIDUE_TOKENS",
+    "token_to_index": "TOKEN_TO_INDEX",
+    "index_to_token": "INDEX_TO_TOKEN",
+    "num_residue_tokens": "NUM_RESIDUE_TOKENS",
+    "nucleotide_residues": "NUCLEOTIDE_RESIDUES",
+    "ion_residues": "ION_RESIDUES",
+    "elements": "ELEMENTS",
+    "element_to_index": "ELEMENT_TO_INDEX",
+    "num_element_tokens": "NUM_ELEMENT_TOKENS",
+    "af3_crystallization_aids": "AF3_CRYSTALLIZATION_AIDS",
+    "af3_ligands_excluded": "AF3_LIGANDS_EXCLUDED",
+    "af3_glycans": "AF3_GLYCANS",
+    "structure_data_fields": "STRUCTURE_DATA_FIELDS",
+    "pad_constants": "PAD_CONSTANTS",
+}
 
 
-def get_token_index(token):
-    return token_to_index.get(token, token_to_index["<UNK>"])
+def __getattr__(name: str) -> Any:
+    """Resolve legacy lowercase constant names.
+
+    Args:
+        name: Requested module attribute name.
+
+    Returns:
+        Value of the corresponding uppercase constant.
+
+    Raises:
+        AttributeError: If the requested name is not a legacy constant.
+    """
+    constant_name = _LEGACY_CONSTANT_NAMES.get(name)
+    if constant_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return globals()[constant_name]
 
 
-def get_element_index(element):
-    return element_to_index.get(element, element_to_index["<ATOM_UNK>"])
+def get_token_index(token: Any) -> Any:
+    """Return token index.
+
+    Args:
+        token: Token value.
+
+    Returns:
+        Result of the get token index operation.
+    """
+    return TOKEN_TO_INDEX.get(token, TOKEN_TO_INDEX["<UNK>"])
+
+
+def get_element_index(element: Any) -> Any:
+    """Return element index.
+
+    Args:
+        element: Element value.
+
+    Returns:
+        Result of the get element index operation.
+    """
+    return ELEMENT_TO_INDEX.get(element, ELEMENT_TO_INDEX["<ATOM_UNK>"])
 
 
 @dataclasses.dataclass
 class StructureData:
+    """Implement the structure data component."""
+
     residue_token: np.ndarray
     residue_index: np.ndarray
     residue_atom_index: np.ndarray
@@ -147,53 +217,79 @@ class StructureData:
     noisy_residue_token: np.ndarray = np.nan
     time_step: np.ndarray = np.nan
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return the number of contained items.
+
+        Returns:
+            Computed integer value.
+        """
         return len(self.residue_token)
 
-    def num_residues(self):
+    def num_residues(self) -> Any:
+        """Execute the num residues operation.
+
+        Returns:
+            Result of the num residues operation.
+        """
         return len(np.unique(self.residue_index))
 
 
 @dataclasses.dataclass
 class BatchStructureData:
-    residue_token: np.ndarray | Tensor
-    residue_index: np.ndarray | Tensor
-    residue_atom_index: np.ndarray | Tensor
-    occupancy: np.ndarray | Tensor
-    bfactor: np.ndarray | Tensor
-    batch_index: np.ndarray | Tensor
-    chain_id: np.ndarray | Tensor
-    position: np.ndarray | Tensor
-    element_index: np.ndarray | Tensor
-    mask_chain: np.ndarray | Tensor
-    # atom_name: np.ndarray
-    is_ion: np.ndarray | Tensor
-    is_protein: np.ndarray | Tensor
-    is_nucleotide: np.ndarray | Tensor
-    is_center: np.ndarray | Tensor
-    is_backbone: np.ndarray | Tensor
-    backbone_mask: np.ndarray | Tensor
-    not_pad_mask: np.ndarray | Tensor
-    interact_non_protein_res: np.ndarray | Tensor
-    interact_ion_res: np.ndarray | Tensor
-    interact_nucleotide_res: np.ndarray | Tensor
-    interact_molecule_res: np.ndarray | Tensor
-    noisy_residue_token: np.ndarray | Tensor
-    time_step: np.ndarray | Tensor
+    """Implement the batch structure data component."""
 
-    def __len__(self):
+    residue_token: Union[np.ndarray, Tensor]
+    residue_index: Union[np.ndarray, Tensor]
+    residue_atom_index: Union[np.ndarray, Tensor]
+    occupancy: Union[np.ndarray, Tensor]
+    bfactor: Union[np.ndarray, Tensor]
+    batch_index: Union[np.ndarray, Tensor]
+    chain_id: Union[np.ndarray, Tensor]
+    position: Union[np.ndarray, Tensor]
+    element_index: Union[np.ndarray, Tensor]
+    mask_chain: Union[np.ndarray, Tensor]
+    # atom_name: np.ndarray
+    is_ion: Union[np.ndarray, Tensor]
+    is_protein: Union[np.ndarray, Tensor]
+    is_nucleotide: Union[np.ndarray, Tensor]
+    is_center: Union[np.ndarray, Tensor]
+    is_backbone: Union[np.ndarray, Tensor]
+    backbone_mask: Union[np.ndarray, Tensor]
+    not_pad_mask: Union[np.ndarray, Tensor]
+    interact_non_protein_res: Union[np.ndarray, Tensor]
+    interact_ion_res: Union[np.ndarray, Tensor]
+    interact_nucleotide_res: Union[np.ndarray, Tensor]
+    interact_molecule_res: Union[np.ndarray, Tensor]
+    noisy_residue_token: Union[np.ndarray, Tensor]
+    time_step: Union[np.ndarray, Tensor]
+
+    def __len__(self) -> int:
+        """Return the number of contained items.
+
+        Returns:
+            Computed integer value.
+        """
         return len(self.residue_token)
 
 
-structure_data_fields = StructureData.__dataclass_fields__
+STRUCTURE_DATA_FIELDS = StructureData.__dataclass_fields__
 
 
 def slice_structure_data(
     structure_data: StructureData,
     slice_array: np.array,
 ) -> StructureData:
+    """Execute the slice structure data operation.
+
+    Args:
+        structure_data: Structure data value.
+        slice_array: Slice array value.
+
+    Returns:
+        Result of the slice structure data operation.
+    """
     new_data = {}
-    for key in structure_data_fields:
+    for key in STRUCTURE_DATA_FIELDS:
         key_obj = getattr(structure_data, key)
         if hasattr(key_obj, "shape") and len(key_obj.shape) > 0:
             if key_obj.shape[0] == slice_array.shape[0]:
@@ -206,7 +302,12 @@ def slice_structure_data(
     return StructureData(**new_data)
 
 
-def init_struct_data_dict():
+def init_struct_data_dict() -> Any:
+    """Execute the init struct data dict operation.
+
+    Returns:
+        Result of the init struct data dict operation.
+    """
     struct_data = {}
     struct_data["residue_token"] = []
     struct_data["residue_index"] = []
@@ -228,9 +329,23 @@ def init_struct_data_dict():
 
 
 def extend_struct_data_dict(
-    struct_data_dict, extension_data_dict, ligand_center=False, ion_center=False
+    struct_data_dict: Dict[str, List[Any]],
+    extension_data_dict: Dict[str, List[Any]],
+    ligand_center: bool = False,
+    ion_center: bool = False,
 ) -> bool:
     # Check if ligand or ion
+    """Execute the extend struct data dict operation.
+
+    Args:
+        struct_data_dict: Struct data dict value.
+        extension_data_dict: Extension data dict value.
+        ligand_center: Ligand center value.
+        ion_center: Ion center value.
+
+    Returns:
+        Whether the extend struct data dict condition is satisfied.
+    """
     if len(extension_data_dict["position"]) == 0:
         return False
     if not (
@@ -279,14 +394,30 @@ def extend_struct_data_dict(
     return False
 
 
-def _normalize_chain_id(chainid: str):
+def _normalize_chain_id(chainid: str) -> Any:
+    """Execute the normalize chain id operation.
+
+    Args:
+        chainid: Chainid value.
+
+    Returns:
+        Result of the normalize chain id operation.
+    """
     chainid = str(chainid).strip()
     if not chainid or chainid in (".", "?"):
         return None
     return chainid
 
 
-def _parse_mmcif_assemblies(path_or_name: str):
+def _parse_mmcif_assemblies(path_or_name: str) -> Any:
+    """Parse mmcif assemblies.
+
+    Args:
+        path_or_name: Path or name value.
+
+    Returns:
+        Result of the parse mmcif assemblies operation.
+    """
     if not os.path.isfile(path_or_name):
         return None
 
@@ -301,7 +432,16 @@ def _parse_mmcif_assemblies(path_or_name: str):
     except Exception:
         return None
 
-    def _to_list(val, n=None):
+    def _to_list(val: Any, n: Optional[Any] = None) -> Any:
+        """Execute the to list operation.
+
+        Args:
+            val: Val value.
+            n: N value.
+
+        Returns:
+            Result of the to list operation.
+        """
         if val is None:
             return [] if n is None else ["" for _ in range(n)]
         if isinstance(val, str):
@@ -322,7 +462,15 @@ def _parse_mmcif_assemblies(path_or_name: str):
     }
 
 
-def parse_structure(path_or_name: str):
+def parse_structure(path_or_name: str) -> Any:
+    """Parse structure.
+
+    Args:
+        path_or_name: Path or name value.
+
+    Returns:
+        Result of the parse structure operation.
+    """
     if ".pdb" in path_or_name:
         parser = PDBParser(QUIET=True)
         return parser.get_structure("structure", path_or_name)
@@ -334,10 +482,19 @@ def parse_structure(path_or_name: str):
 
 
 def _normalize_duplicate_residue_altlocs(
-    mmcif_dict, auth_chains=True, auth_residues=True
-):
+    mmcif_dict: Dict[str, List[str]],
+    auth_chains: bool = True,
+    auth_residues: bool = True,
+) -> None:
     # Biopython rejects point-mutated residues if one residue alternative has
     # blank atom altlocs. Normalize those blanks before StructureBuilder runs.
+    """Execute the normalize duplicate residue altlocs operation.
+
+    Args:
+        mmcif_dict: Mmcif dict value.
+        auth_chains: Auth chains value.
+        auth_residues: Auth residues value.
+    """
     alt_ids = mmcif_dict.get("_atom_site.label_alt_id")
     comp_ids = mmcif_dict.get("_atom_site.label_comp_id")
     if not alt_ids or not comp_ids:
@@ -392,7 +549,17 @@ def _normalize_duplicate_residue_altlocs(
 
 
 class AllAltlocMMCIFParser(MMCIFParser):
-    def _build_structure(self, structure_id):
+    """Implement the all altloc mmcifparser component."""
+
+    def _build_structure(self, structure_id: Any) -> Any:
+        """Build structure.
+
+        Args:
+            structure_id: Structure id value.
+
+        Returns:
+            Result of the build structure operation.
+        """
         _normalize_duplicate_residue_altlocs(
             self._mmcif_dict,
             auth_chains=self.auth_chains,
@@ -404,19 +571,35 @@ class AllAltlocMMCIFParser(MMCIFParser):
 class _NonWaterHydrogenSelect(Select):
     """PDBIO selector that skips water and hydrogen, consistent with parse_mmcif_to_structure_data."""
 
-    _water = {"HOH", "WAT", "DOD"}
+    _WATER = {"HOH", "WAT", "DOD"}
 
-    def accept_residue(self, residue):
-        return residue.get_resname().strip() not in self._water
+    def accept_residue(self, residue: Any) -> bool:
+        """Execute the accept residue operation.
 
-    def accept_atom(self, atom):
+        Args:
+            residue: Residue value.
+
+        Returns:
+            Whether the accept residue condition is satisfied.
+        """
+        return residue.get_resname().strip() not in self._WATER
+
+    def accept_atom(self, atom: Any) -> bool:
+        """Execute the accept atom operation.
+
+        Args:
+            atom: Atom value.
+
+        Returns:
+            Whether the accept atom condition is satisfied.
+        """
         element = (atom.element or "").strip().upper()
         if element in {"H", "D"} or atom.get_name().startswith("H"):
             return 0
         return 1
 
 
-def cif_to_pdb(cif_path, pdb_path):
+def cif_to_pdb(cif_path: str, pdb_path: str) -> None:
     """Convert mmCIF to PDB using Biopython, consistent with parse_structure.
 
     Uses the same MMCIFParser(auth_chains=False) so the resulting PDB
@@ -426,6 +609,10 @@ def cif_to_pdb(cif_path, pdb_path):
     - Multi-character chain IDs -> remapped to single-character PDB chain IDs
     - Water-only chains -> removed (reduces chain count for PDB format limit)
     - Long residue names (>3 chars) -> truncated to 3 chars for PDB compatibility
+
+    Args:
+        cif_path: Path for cif.
+        pdb_path: Path for pdb.
     """
     structure = parse_structure(cif_path)
 
@@ -475,10 +662,21 @@ def cif_to_pdb(cif_path, pdb_path):
 
 
 def parse_mmcif_to_structure_data(
-    path_or_name, parser_chain_id=None, ion_center=False, ligand_center=False
+    path_or_name: str,
+    parser_chain_id: Optional[str] = None,
+    ion_center: bool = False,
+    ligand_center: bool = False,
 ) -> StructureData:
-    """
-    Parse a mmCIF file and return a StructureData object.
+    """Parse a mmCIF file and return a StructureData object.
+
+    Args:
+        path_or_name: Path or name value.
+        parser_chain_id: Parser chain id value.
+        ion_center: Ion center value.
+        ligand_center: Ligand center value.
+
+    Returns:
+        Result of the parse mmcif to structure data operation.
     """
     protein_residues = get_protein_residues()
 
@@ -508,16 +706,16 @@ def parse_mmcif_to_structure_data(
             resname = residue.get_resname().strip()
             if resname in water_resnames:
                 continue
-            if resname in af3_crystallization_aids:
+            if resname in AF3_CRYSTALLIZATION_AIDS:
                 continue
 
             temp_residue_data = init_struct_data_dict()
             residue_atom_count = 0
             backbone_atoms_present = set()
 
-            is_ion_res = resname in ion_residues
+            is_ion_res = resname in ION_RESIDUES
             is_protein_res = resname in protein_residues
-            is_nucleotide_res = resname in nucleotide_residues
+            is_nucleotide_res = resname in NUCLEOTIDE_RESIDUES
 
             for atom in residue.get_unpacked_list():
                 element = (atom.element or "").strip().upper()
@@ -525,7 +723,7 @@ def parse_mmcif_to_structure_data(
                 if element in {"H", "D"} or atom_name.startswith("H"):
                     continue
 
-                if resname in af3_glycans:
+                if resname in AF3_GLYCANS:
                     resname_use = "<GLYCAN>"
                 else:
                     resname_use = resname
@@ -613,9 +811,15 @@ def parse_mmcif_to_structure_data(
     return data
 
 
-def mask_structure_data(struct_data: StructureData, mask_array: np.ndarray):
-    """
-    Mask the structure data with a boolean array.
+def mask_structure_data(struct_data: StructureData, mask_array: np.ndarray) -> Any:
+    """Mask the structure data with a boolean array.
+
+    Args:
+        struct_data: Struct data value.
+        mask_array: Boolean mask for mask array.
+
+    Returns:
+        Result of the mask structure data operation.
     """
     # Masking the data consists of putting in <MASK> tokens for the protein residues
     # And removing the non-backbone atoms for the masked residues
@@ -631,10 +835,10 @@ def mask_structure_data(struct_data: StructureData, mask_array: np.ndarray):
     )
     atom_keep_array = np.logical_not(atom_mask_array)
 
-    struct_data.residue_token[atom_mask_array] = token_to_index["<MASK>"]
+    struct_data.residue_token[atom_mask_array] = TOKEN_TO_INDEX["<MASK>"]
 
     masked_data = {}
-    for key in structure_data_fields:
+    for key in STRUCTURE_DATA_FIELDS:
         masked_data[key] = struct_data.__dict__[key][atom_keep_array]
     return StructureData(**masked_data)
 
@@ -642,8 +846,15 @@ def mask_structure_data(struct_data: StructureData, mask_array: np.ndarray):
 def get_closest_n_residues(
     struct_data: StructureData, position: np.ndarray, n: int
 ) -> StructureData:
-    """
-    Get the n closest residues to a position.
+    """Get the n closest residues to a position.
+
+    Args:
+        struct_data: Struct data value.
+        position: Position value.
+        n: N value.
+
+    Returns:
+        Result of the get closest n residues operation.
     """
     # Going to pick residues by center atom
     center_atoms = struct_data.position[struct_data.is_center]
@@ -662,9 +873,17 @@ def get_closest_n_atoms(
     n: int,
     remove_incomplete_residues: bool = True,
 ) -> StructureData:
-    """
-    Get the n closest atoms to a position.
+    """Get the n closest atoms to a position.
     Throw out atoms that are partially picked from a residue
+
+    Args:
+        struct_data: Struct data value.
+        position: Position value.
+        n: N value.
+        remove_incomplete_residues: Remove incomplete residues value.
+
+    Returns:
+        Result of the get closest n atoms operation.
     """
     kdtree = cKDTree(struct_data.position)
     _, closest_atom_indices = kdtree.query(position, n)
@@ -679,15 +898,15 @@ def get_closest_n_atoms(
     return slice_structure_data(struct_data, closest_atom_mask)
 
 
-pad_constants = {
-    "residue_token": token_to_index["<PAD>"],
+PAD_CONSTANTS = {
+    "residue_token": TOKEN_TO_INDEX["<PAD>"],
     "residue_index": -1,
     "residue_atom_index": -1,
     "occupancy": 0.0,
     "bfactor": 0.0,
     "chain_id": -1,
     "position": 0.0,
-    "element_index": element_to_index["<ATOM_PAD>"],
+    "element_index": ELEMENT_TO_INDEX["<ATOM_PAD>"],
     "atom_name": "",
     "is_ion": False,
     "is_protein": False,
@@ -701,23 +920,29 @@ pad_constants = {
     "interact_ion_res": False,
     "interact_nucleotide_res": False,
     "interact_molecule_res": False,
-    "noisy_residue_token": token_to_index["<PAD>"],
+    "noisy_residue_token": TOKEN_TO_INDEX["<PAD>"],
     "time_step": -1,
 }
 
 
-def pad_structure_data(struct_data: StructureData, pad_length: int):
-    """
-    Pad a structure data to a certain length.
+def pad_structure_data(struct_data: StructureData, pad_length: int) -> Any:
+    """Pad a structure data to a certain length.
+
+    Args:
+        struct_data: Struct data value.
+        pad_length: Pad length value.
+
+    Returns:
+        Result of the pad structure data operation.
     """
     pad_data = {}
-    for key in structure_data_fields:
+    for key in STRUCTURE_DATA_FIELDS:
         if key != "position" and key != "time_step":
             pad_data[key] = np.pad(
                 struct_data.__dict__[key],
                 (0, pad_length - len(struct_data)),
                 mode="constant",
-                constant_values=pad_constants[key],
+                constant_values=PAD_CONSTANTS[key],
             )
         elif key == "time_step":
             pad_data[key] = struct_data.__dict__[key]
@@ -731,7 +956,7 @@ def pad_structure_data(struct_data: StructureData, pad_length: int):
             struct_data.__dict__["mask_chain"],
             (0, pad_length - len(struct_data)),
             mode="constant",
-            constant_values=pad_constants["not_pad_mask"],
+            constant_values=PAD_CONSTANTS["not_pad_mask"],
         )
     data = StructureData(**pad_data)
     data.mask_chain = pad_mask_chain
@@ -739,6 +964,14 @@ def pad_structure_data(struct_data: StructureData, pad_length: int):
 
 
 def from_numpy(x_array: np.array) -> torch.Tensor:
+    """Execute the from numpy operation.
+
+    Args:
+        x_array: X array value.
+
+    Returns:
+        Computed tensor values.
+    """
     if x_array.dtype == np.float64:
         x_array = x_array.astype(np.float32)
     return torch.from_numpy(x_array)
@@ -749,8 +982,15 @@ def batch_structure_data_list(
     pad_length: int = None,
     to_torch: bool = False,
 ) -> BatchStructureData:
-    """
-    Batch a list of structure data.
+    """Batch a list of structure data.
+
+    Args:
+        struct_data_list: Struct data list value.
+        pad_length: Pad length value.
+        to_torch: To torch value.
+
+    Returns:
+        Result of the batch structure data list operation.
     """
     try:
         struct_data_list = [x for x in struct_data_list if x is not None]
@@ -773,7 +1013,7 @@ def batch_structure_data_list(
             else:
                 new_struct_data_list.append(struct_data)
 
-        for key in structure_data_fields:
+        for key in STRUCTURE_DATA_FIELDS:
             if key not in BatchStructureData.__dataclass_fields__ or key in [
                 "time_step"
             ]:
@@ -801,12 +1041,23 @@ def batch_structure_data_list(
         return None
 
 
-def dump_structure_data(struct_data: StructureData, path: str):
-    """
-    Dump a structure data to a file.
+def dump_structure_data(struct_data: StructureData, path: str) -> None:
+    """Dump a structure data to a file.
+
+    Args:
+        struct_data: Struct data value.
+        path: Path value.
     """
 
-    def _to_saveable(value):
+    def _to_saveable(value: Any) -> Any:
+        """Execute the to saveable operation.
+
+        Args:
+            value: Value value.
+
+        Returns:
+            Result of the to saveable operation.
+        """
         if isinstance(value, dict):
             return np.array([value], dtype=object)
         if isinstance(value, list):
@@ -824,11 +1075,16 @@ def dump_structure_data(struct_data: StructureData, path: str):
 
 
 def load_structure_data(path: str) -> StructureData:
-    """
-    Load a structure data to a file.
+    """Load a structure data to a file.
+
+    Args:
+        path: Path value.
+
+    Returns:
+        Result of the load structure data operation.
     """
     struct_data = np.load(path, allow_pickle=True)
-    field_names = set(structure_data_fields.keys())
+    field_names = set(STRUCTURE_DATA_FIELDS.keys())
     data_kwargs = {k: struct_data[k] for k in struct_data.files if k in field_names}
     # Backward compatibility: older .npz may not have backbone_mask
     if "backbone_mask" not in data_kwargs:
@@ -857,8 +1113,22 @@ def load_structure_data(path: str) -> StructureData:
 
 
 def parse_or_load_mmcif(
-    path_or_name, parser_chain_id=None, ion_center=False, ligand_center=False
+    path_or_name: str,
+    parser_chain_id: Optional[str] = None,
+    ion_center: bool = False,
+    ligand_center: bool = False,
 ) -> StructureData:
+    """Parse or load mmcif.
+
+    Args:
+        path_or_name: Path or name value.
+        parser_chain_id: Parser chain id value.
+        ion_center: Ion center value.
+        ligand_center: Ligand center value.
+
+    Returns:
+        Result of the parse or load mmcif operation.
+    """
     if os.path.splitext(path_or_name)[1] == ".npz":
         return load_structure_data(path_or_name)
     else:
@@ -870,7 +1140,12 @@ def parse_or_load_mmcif(
         )
 
 
-def get_example_batch():
+def get_example_batch() -> Any:
+    """Return example batch.
+
+    Returns:
+        Result of the get example batch operation.
+    """
     struct_data1 = parse_mmcif_to_structure_data("5a00")
     struct_data2 = parse_mmcif_to_structure_data("7npm")
     struct_data3 = parse_mmcif_to_structure_data("dataset/test_nucleotide/1bc7.pdb")
@@ -879,8 +1154,17 @@ def get_example_batch():
     return batch_data
 
 
-def propagate_mask_vectorized(mask, index):
+def propagate_mask_vectorized(mask: Any, index: int) -> Any:
     # Ensure inputs are tensors
+    """Execute the propagate mask vectorized operation.
+
+    Args:
+        mask: Boolean mask for mask.
+        index: Index value.
+
+    Returns:
+        Result of the propagate mask vectorized operation.
+    """
     mask = torch.as_tensor(mask, dtype=torch.bool)
     index = torch.as_tensor(index)
 
@@ -897,7 +1181,15 @@ def propagate_mask_vectorized(mask, index):
     return any_true[inverse_indices]
 
 
-def interact_residue(data):
+def interact_residue(data: Any) -> Any:
+    """Execute the interact residue operation.
+
+    Args:
+        data: Data value.
+
+    Returns:
+        Result of the interact residue operation.
+    """
     protein_pos = np.expand_dims(data.position[data.is_protein], axis=1)
     non_protein_pos = np.expand_dims(data.position[~data.is_protein], axis=0)
     ion_pos = np.expand_dims(data.position[data.is_ion], axis=0)
@@ -936,7 +1228,23 @@ def interact_residue(data):
     return data
 
 
-def pdb2data(pdb_file, device="cpu", ligand_center=False, ion_center=False):
+def pdb2data(
+    pdb_file: str,
+    device: str = "cpu",
+    ligand_center: bool = False,
+    ion_center: bool = False,
+) -> Any:
+    """Execute the pdb2data operation.
+
+    Args:
+        pdb_file: Path for pdb.
+        device: Device used for tensor operations.
+        ligand_center: Ligand center value.
+        ion_center: Ion center value.
+
+    Returns:
+        Result of the pdb2data operation.
+    """
     data = parse_mmcif_to_structure_data(
         pdb_file, ligand_center=ligand_center, ion_center=ion_center
     )
@@ -956,10 +1264,13 @@ def pdb2data(pdb_file, device="cpu", ligand_center=False, ion_center=False):
     return result
 
 
-def _switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path):
-    """
-    new_pdb_path is the sidechain packing pdb
+def _switch_pdb_order_add_ligand(new_pdb_path: str, original_pdb_path: str) -> None:
+    """new_pdb_path is the sidechain packing pdb
     original_pdb_path is the original pdb
+
+    Args:
+        new_pdb_path: Path for new pdb.
+        original_pdb_path: Path for original pdb.
     """
     structure = prody.parsePDB(new_pdb_path)
     protein_atom = structure.select("protein")
@@ -972,7 +1283,16 @@ def _switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path):
     prody.proteins.pdbfile.writePDB(new_pdb_path, merged)
 
 
-def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None):
+def switch_pdb_order_add_ligand(
+    new_pdb_path: str, original_pdb_path: str, confidence: Optional[np.ndarray] = None
+) -> None:
+    """Execute the switch pdb order add ligand operation.
+
+    Args:
+        new_pdb_path: Path for new pdb.
+        original_pdb_path: Path for original pdb.
+        confidence: Confidence value.
+    """
     new_lines = []
     temp_line = None
     ligand_lines = []
@@ -1050,7 +1370,13 @@ def switch_pdb_order_add_ligand(new_pdb_path, original_pdb_path, confidence=None
         f.writelines(new_lines)
 
 
-def make_merged_pdb(original_pdb_path: str, sc_packing_pdb_path: str):
+def make_merged_pdb(original_pdb_path: str, sc_packing_pdb_path: str) -> None:
+    """Create merged pdb.
+
+    Args:
+        original_pdb_path: Path for original pdb.
+        sc_packing_pdb_path: Path for sc packing pdb.
+    """
     og_pdb = prody.parsePDB(original_pdb_path)
     sc_pdb = prody.parsePDB(sc_packing_pdb_path)
 
@@ -1083,22 +1409,3 @@ def make_merged_pdb(original_pdb_path: str, sc_packing_pdb_path: str):
     )
     new_atom_group.setTitle(og_pdb.getTitle())
     prody.proteins.writePDB(sc_packing_pdb_path, new_atom_group)
-
-
-if __name__ == "__main__":
-    np.random.seed(0)
-    import glob
-
-    all_valid_file = glob.glob("/ssd/dataset/pdb/train/*.cif.gz")
-    # struct_data = parse_mmcif_to_structure_data("/ssd/dataset/pdb/valid/1djy.cif.gz")
-    for file in all_valid_file:
-        struct_data = parse_mmcif_to_structure_data(file)
-        # print(struct_data)
-        if len(struct_data.__dict__["asmb_ids"]) > 1:
-            print(struct_data)
-
-    # Let's test masking
-    # mask_array = np.random.rand(np.max(struct_data.residue_token) + 1) > 0.2
-    # print(np.sum(mask_array))
-    # masked_struct_data = mask_structure_data(struct_data, mask_array)
-    # print(masked_struct_data)

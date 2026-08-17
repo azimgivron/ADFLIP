@@ -14,10 +14,12 @@
 
 """Protein data type."""
 
+from __future__ import annotations
+
 import dataclasses
 import gzip
 import io
-from typing import Optional, Sequence, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 try:
     import PIPPack.data.residue_constants as rc
@@ -28,7 +30,7 @@ import numpy as np
 import prody
 from Bio.PDB import MMCIFParser, PDBParser
 
-protein_residues = set(
+PROTEIN_RESIDUES = set(
     list(prody.flagDefinition("stdaa")) + list(prody.flagDefinition("nonstdaa"))
 )
 
@@ -66,7 +68,8 @@ class Protein:
     # value.
     b_factors: np.ndarray  # [num_res, num_atom_type]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Validate and finalize the initialized instance."""
         if len(np.unique(self.chain_index)) > PDB_MAX_CHAINS:
             raise ValueError(
                 f"Cannot build an instance with more than {PDB_MAX_CHAINS} chains "
@@ -139,7 +142,7 @@ def from_pdb_string(
             if discard_water:
                 if res.resname == "HOH":
                     continue
-            if res.resname not in protein_residues:
+            if res.resname not in PROTEIN_RESIDUES:
                 continue
             # Convert MSE residues to MET by changing only necessary fields.
             if mse_to_met:
@@ -150,33 +153,33 @@ def from_pdb_string(
                             atom.name = "SD"
 
             # Ignore non-standard residues
-            res_shortname = rc.restype_3to1.get(res.resname, "G")
+            res_shortname = rc.RESTYPE_3TO1.get(res.resname, "G")
             if ignore_non_std:
                 if res.resname == "X":
                     continue
             res_longname = (
-                res.resname if res.resname in rc.restype_3to1.keys() else "GLY"
+                res.resname if res.resname in rc.RESTYPE_3TO1.keys() else "GLY"
             )
             # Increment residue index offset if insertion code is detected.
             if res.id[2] != " ":
                 insertion_code_offset += 1
 
-            restype_idx = rc.restype_order.get(res_shortname, rc.restype_num)
+            restype_idx = rc.RESTYPE_ORDER.get(res_shortname, rc.RESTYPE_NUM)
 
             pos = np.full((14, 3), fill_value=(np.nan))
             mask = np.zeros((14,))
             res_b_factors = np.zeros((14,))
             for atom in res:
-                if atom.name not in rc.restype_name_to_atom14_names[res_longname]:
+                if atom.name not in rc.RESTYPE_NAME_TO_ATOM14_NAMES[res_longname]:
                     continue
-                pos[rc.restype_name_to_atom14_names[res_longname].index(atom.name)] = (
+                pos[rc.RESTYPE_NAME_TO_ATOM14_NAMES[res_longname].index(atom.name)] = (
                     atom.coord
                 )
-                mask[rc.restype_name_to_atom14_names[res_longname].index(atom.name)] = (
+                mask[rc.RESTYPE_NAME_TO_ATOM14_NAMES[res_longname].index(atom.name)] = (
                     1.0
                 )
                 res_b_factors[
-                    rc.restype_name_to_atom14_names[res_longname].index(atom.name)
+                    rc.RESTYPE_NAME_TO_ATOM14_NAMES[res_longname].index(atom.name)
                 ] = atom.bfactor
             if mask[1] < 1:
                 # If no known atom positions are reported for the residue then skip it.
@@ -211,8 +214,17 @@ def from_pdb_string(
     )
 
 
-def from_pdb_file(pdb_file: str, **kwargs) -> Protein:
+def from_pdb_file(pdb_file: str, **kwargs: Dict[str, Any]) -> Protein:
     # Obtain PDB string from PDB file.
+    """Execute the from pdb file operation.
+
+    Args:
+        pdb_file: Path for pdb.
+        kwargs: Additional arguments forwarded to the implementation.
+
+    Returns:
+        Result of the from pdb file operation.
+    """
     if pdb_file[-3:] == "pdb":
         with open(pdb_file, "r") as f:
             pdb_str = f.read()
@@ -228,7 +240,20 @@ def from_pdb_file(pdb_file: str, **kwargs) -> Protein:
     return from_pdb_string(pdb_str, **kwargs)
 
 
-def _chain_end(atom_index, end_resname, chain_name, residue_index) -> str:
+def _chain_end(
+    atom_index: int, end_resname: Any, chain_name: str, residue_index: int
+) -> str:
+    """Execute the chain end operation.
+
+    Args:
+        atom_index: Atom index value.
+        end_resname: End resname value.
+        chain_name: Chain name value.
+        residue_index: Residue index value.
+
+    Returns:
+        Result of the chain end operation.
+    """
     chain_end = "TER"
     return (
         f"{chain_end:<6}{atom_index:>5}      {end_resname:>3} "
@@ -245,8 +270,8 @@ def to_pdb(prot: Protein) -> str:
     Returns:
         PDB string.
     """
-    restypes = rc.restypes + ["X"]
-    res_1to3 = lambda r: rc.restype_1to3.get(restypes[r], "UNK")
+    restypes = rc.RESTYPES + ["X"]
+    res_1to3 = lambda r: rc.RESTYPE_1TO3.get(restypes[r], "UNK")
 
     pdb_lines = []
 
@@ -257,7 +282,7 @@ def to_pdb(prot: Protein) -> str:
     chain_index = prot.chain_index.astype(np.int32)
     b_factors = prot.b_factors
 
-    if np.any(aatype > rc.restype_num):
+    if np.any(aatype > rc.RESTYPE_NUM):
         raise ValueError("Invalid aatypes.")
 
     # Construct a mapping from chain integer indices to chain ID strings.
@@ -290,13 +315,13 @@ def to_pdb(prot: Protein) -> str:
         if atom_positions.shape[-2] == 14:
             # If the protein has 14 atoms per residue, then it is a reduced representation and
             # the order of the atoms in each residue depends on the residue type.
-            atom_types = rc.restype_name_to_atom14_names[
-                rc.restype_1to3[rc.restypes[aatype[i]]]
+            atom_types = rc.RESTYPE_NAME_TO_ATOM14_NAMES[
+                rc.RESTYPE_1TO3[rc.RESTYPES[aatype[i]]]
             ]
         elif atom_positions.shape[-2] == 37:
             # If the protein has 37 atoms per residue, then it is a full representation and
             # the order of the atoms in each residue is fixed.
-            atom_types = rc.atom_types
+            atom_types = rc.ATOM_TYPES
         else:
             raise ValueError("Invalid number of atoms per residue.")
 

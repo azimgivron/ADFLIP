@@ -1,99 +1,65 @@
-# ADFLIP: All-atom inverse protein folding through discrete flow matching (ICML2025)
-![ADFLIP](ADFLIP_f1.png)
-## Description
-Implementation for "All-atom inverse protein folding through discrete flow matching" [Link](https://openreview.net/forum?id=8tQdwSCJmA).
+# ADFLIP
 
-## Environment Setup
+This repository is the minimal ADFLIP support package used by
+[`hessian-flow`](../hessian-flow/hessian-flow). It provides the all-atom data
+types and dataset, the Zoidberg network components, the masked-flow primitives,
+side-chain packing through the retained PIPPack runtime, and the structure-data
+preprocessing pipeline required by that project.
 
-```bash
-conda create -n ADFLIP python=3.12 pip -y
-conda activate ADFLIP
-pip install -r requirements.txt
-pip install torch-cluster -f https://data.pyg.org/whl/torch-2.2.0+cu121.html
-pip install torch-scatter -f https://data.pyg.org/whl/torch-2.2.0+cu121.html
-pip install -e .
-conda install -c conda-forge -c bioconda mmseqs2
-```
+The original standalone ADFLIP trainer, inference and benchmark workflows are
+outside this package's scope.
 
-## Using ADFLIP as a dependency
+## Install
 
-The Python package now lives under `src/adflip`, so downstream code can import it
-without adding the repository root to `PYTHONPATH`:
-
-```python
-from adflip.model.discrete_flow_aa import DiscreteFlow_AA
-from adflip.model.zoidberg.zoidberg_GNN import Zoidberg_GNN
-from adflip.data.residue_config import configure
-```
-
-For local development:
+Hessian Flow already declares ADFLIP as an editable local dependency. To install
+ADFLIP directly instead, run:
 
 ```bash
-pip install -e .
+python -m pip install -e .
 ```
 
-From another project, install from a local path or Git URL:
+Zoidberg uses PyTorch Geometric's `knn_graph`; install the `torch-cluster` wheel
+that matches the PyTorch and accelerator versions in the consuming environment.
+
+## Preprocess structure data
+
+The complete preprocessing workflow downloads the configured RCSB mmCIF files,
+parses them to `.npz`, exports protein-chain FASTA files, clusters train and
+validation chains with MMseqs2, and builds the cluster lookup files:
 
 ```bash
-pip install /path/to/ADFLIP
-# or
-pip install "git+https://github.com/<owner>/<repo>.git"
+./src/data_preprocess_pipeline.sh
 ```
 
+The pipeline requires `mmseqs` on `PATH`. It reads split definitions from
+`data/split`, writes raw and parsed structures below `dataset` by default, and
+writes cluster files below `data/cluster`. Override the structure-data location
+with `DATA_DIR=/path/to/data`; override MMseqs threads with `THREADS=<count>`.
 
-## Training
+The individual installed commands are:
 
-To train ADFLIP from scratch:
-
-```bash
-conda activate ADFLIP
-adflip-train --config_path config/train_v1.yaml
-# or: python3 -m adflip.trainer --config_path config/train_v1.yaml
+```text
+adflip-download-data
+adflip-parse-dataset
+adflip-export-sequences
+adflip-build-mmseqs-clusters
 ```
 
-Training configuration (hyperparameters, data paths, wandb logging, etc.) can be modified in `config/train_v1.yaml`.
+## Side-chain packing
 
-## Usage
+`adflip.model.sidechain_packing` exposes `load_sidechain_models` and
+`pack_sidechains` as focused functions. Models and inference configuration are
+passed explicitly to the packing function so Hessian Flow can own future
+concurrent scheduling.
 
-There are two main ways to sample sequences from a given input file:
+## Citation
 
-1. **Fixed-step sampling** using a constant time step (`dt`):
-
-   ```python
-
-   # Fixed-step sampling
-   samples, logits = flow_model.sample(
-       input_file,
-       dt=0.2
-   )
-   ```
-
-2. **Adaptive-step sampling** based on model uncertainty (up to `num_step`, stops when confidence > `threshold`):
-
-   ```python
-   # Adaptive sampling
-   samples, logits = flow_model.adaptive_sample(
-       input_file,
-       num_step=8,
-       threshold=0.9
-   )
-   ```
-The entire workflow for using ADFLIP can be found the [file](test/design.py). It loads a checkpoint, processes a PDB file, runs sampling, and computes recovery rates:
-
-## Comments 
-
-- Our codebase for discrete flow matching builds on [Discrete Flow Models](https://github.com/andrew-cr/discrete_flow_models).
-Thanks for open-sourcing!
-
-## Citation 
-If you consider our codes and datasets useful, please cite:
-```
-@inproceedings{
-      yi2025allatom,
-      title={All-atom inverse protein folding through discrete flow matching},
-      author={Kai Yi and Kiarash Jamali and Sjors HW Scheres},
-      booktitle={Forty-second International Conference on Machine Learning},
-      year={2025},
-      url={https://openreview.net/forum?id=8tQdwSCJmA}
-      }
+```bibtex
+@inproceedings{yi2025allatom,
+  title={All-atom inverse protein folding through discrete flow matching},
+  author={Kai Yi and Kiarash Jamali and Sjors HW Scheres},
+  booktitle={Forty-second International Conference on Machine Learning},
+  year={2025},
+  url={https://openreview.net/forum?id=8tQdwSCJmA}
+}
 ```

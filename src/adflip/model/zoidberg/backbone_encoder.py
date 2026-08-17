@@ -1,29 +1,59 @@
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Tuple
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch_geometric.utils import to_dense_batch
 
-from adflip.data.all_atom_parse import num_residue_tokens
+from adflip.data.all_atom_parse import NUM_RESIDUE_TOKENS
 from adflip.model.zoidberg.transition_block import TransitionBlock
 from adflip.model.zoidberg.utils import FourierEmbedding
 
 
-def gather_edges(edges, neighbor_idx):
+def gather_edges(edges: torch.Tensor, neighbor_idx: torch.Tensor) -> torch.Tensor:
     # Features [B,N,N,C] at Neighbor indices [B,N,K] => Neighbor features [B,N,K,C]
+    """Execute the gather edges operation.
+
+    Args:
+        edges: Edges value.
+        neighbor_idx: Neighbor idx value.
+
+    Returns:
+        Result of the gather edges operation.
+    """
     neighbors = neighbor_idx.unsqueeze(-1).expand(-1, -1, -1, edges.size(-1))
     edge_features = torch.gather(edges, 2, neighbors)
     return edge_features
 
 
 class PositionalEncodings(torch.nn.Module):
-    def __init__(self, num_embeddings, max_relative_feature=32):
+    """Implement the positional encodings component."""
+
+    def __init__(self, num_embeddings: int, max_relative_feature: int = 32) -> None:
+        """Initialize the PositionalEncodings.
+
+        Args:
+            num_embeddings: Number of embeddings.
+            max_relative_feature: Max relative feature value.
+        """
         super(PositionalEncodings, self).__init__()
         self.num_embeddings = num_embeddings
         self.max_relative_feature = max_relative_feature
         self.linear = torch.nn.Linear(2 * max_relative_feature + 1 + 1, num_embeddings)
 
-    def forward(self, offset, mask):
+    def forward(self, offset: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            offset: Offset value.
+            mask: Boolean mask for mask.
+
+        Returns:
+            Computed tensor values.
+        """
         d = torch.clip(
             offset + self.max_relative_feature, 0, 2 * self.max_relative_feature
         ) * mask + (1 - mask) * (2 * self.max_relative_feature + 1)
@@ -33,10 +63,14 @@ class PositionalEncodings(torch.nn.Module):
 
 
 class DihedralFeatures(nn.Module):
-    def __init__(self, node_embed_dim):
-        """
-        Embed dihedral angle features.
+    """Implement the dihedral features component."""
+
+    def __init__(self, node_embed_dim: int) -> None:
+        """Embed dihedral angle features.
         adapt from: https://github.com/facebookresearch/esm
+
+        Args:
+            node_embed_dim: Dimension for node embed.
         """
         super(DihedralFeatures, self).__init__()
         # 3 dihedral angles; sin and cos of each angle
@@ -44,15 +78,34 @@ class DihedralFeatures(nn.Module):
         # Normalization and embedding
         self.node_embedding = nn.Linear(node_in, node_embed_dim, bias=True)
 
-    def forward(self, X):
-        """Featurize coordinates as an attributed graph"""
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """Featurize coordinates as an attributed graph
+
+        Args:
+            X: Input tensor.
+
+        Returns:
+            Computed tensor values.
+        """
         V = self._dihedrals(X)
         V = self.node_embedding(V)
         return V
 
     @staticmethod
-    def _dihedrals(X, eps=1e-7, return_angles=False):
+    def _dihedrals(
+        X: torch.Tensor, eps: float = 1e-7, return_angles: bool = False
+    ) -> torch.Tensor:
         # First 3 coordinates are N, CA, C
+        """Execute the dihedrals operation.
+
+        Args:
+            X: Input tensor.
+            eps: Eps value.
+            return_angles: Return angles value.
+
+        Returns:
+            Result of the dihedrals operation.
+        """
         X = X[:, :, :3, :].reshape(X.shape[0], 3 * X.shape[1], 3)
 
         # Shifted slices of unit vectors
@@ -84,18 +137,31 @@ class DihedralFeatures(nn.Module):
 
 
 class ProteinFeatures(torch.nn.Module):
+    """Implement the protein features component."""
+
     def __init__(
         self,
-        edge_features,
-        node_features,
-        num_positional_embeddings=16,
-        num_rbf=16,
-        top_k=48,
-        augment_eps=0.0,
-        diheral_features=False,
-        secondary_structure=False,
-    ):
-        """Extract protein features"""
+        edge_features: torch.Tensor,
+        node_features: torch.Tensor,
+        num_positional_embeddings: int = 16,
+        num_rbf: int = 16,
+        top_k: int = 48,
+        augment_eps: float = 0.0,
+        diheral_features: bool = False,
+        secondary_structure: bool = False,
+    ) -> None:
+        """Extract protein features
+
+        Args:
+            edge_features: Edge features value.
+            node_features: Node features value.
+            num_positional_embeddings: Number of positional embeddings.
+            num_rbf: Number of rbf.
+            top_k: Top k value.
+            augment_eps: Augment eps value.
+            diheral_features: Diheral features value.
+            secondary_structure: Secondary structure value.
+        """
         super(ProteinFeatures, self).__init__()
         self.edge_features = edge_features
         self.node_features = node_features
@@ -115,7 +181,19 @@ class ProteinFeatures(torch.nn.Module):
         if self.secondary_structure:
             self.ss_encoder = torch.nn.Linear(9, node_features, bias=False)
 
-    def _dist(self, X, mask, eps=1e-6):
+    def _dist(
+        self, X: torch.Tensor, mask: torch.Tensor, eps: float = 1e-6
+    ) -> Tuple[Any, ...]:
+        """Execute the dist operation.
+
+        Args:
+            X: Input tensor.
+            mask: Boolean mask for mask.
+            eps: Eps value.
+
+        Returns:
+            Computed result values.
+        """
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
         D = mask_2D * torch.sqrt(torch.sum(dX**2, 3) + eps)
@@ -126,7 +204,15 @@ class ProteinFeatures(torch.nn.Module):
         )
         return D_neighbors, E_idx
 
-    def _rbf(self, D):
+    def _rbf(self, D: torch.Tensor) -> torch.Tensor:
+        """Execute the rbf operation.
+
+        Args:
+            D: D value.
+
+        Returns:
+            Result of the rbf operation.
+        """
         device = D.device
         D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
         D_mu = torch.linspace(D_min, D_max, D_count, device=device)
@@ -136,7 +222,19 @@ class ProteinFeatures(torch.nn.Module):
         RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
         return RBF
 
-    def _get_rbf(self, A, B, E_idx):
+    def _get_rbf(
+        self, A: torch.Tensor, B: torch.Tensor, E_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Return rbf.
+
+        Args:
+            A: A value.
+            B: B value.
+            E_idx: E idx value.
+
+        Returns:
+            Result of the get rbf operation.
+        """
         D_A_B = torch.sqrt(
             torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
         )  # [B, L, L]
@@ -146,7 +244,15 @@ class ProteinFeatures(torch.nn.Module):
         RBF_A_B = self._rbf(D_A_B_neighbors)
         return RBF_A_B
 
-    def forward(self, input_features):
+    def forward(self, input_features: torch.Tensor) -> Tuple[Any, ...]:
+        """Run the forward pass.
+
+        Args:
+            input_features: Input features value.
+
+        Returns:
+            Computed result values.
+        """
         X = input_features["X"]
         mask = input_features["mask"]
         R_idx = input_features["R_idx"]
@@ -222,20 +328,35 @@ class ProteinFeatures(torch.nn.Module):
 
 
 class ProteinFeaturesLigand(torch.nn.Module):
+    """Implement the protein features ligand component."""
+
     def __init__(
         self,
-        edge_features,
-        node_features,
-        num_positional_embeddings=16,
-        num_rbf=16,
-        top_k=30,
-        augment_eps=0.0,
-        device=None,
-        atom_context_num=16,
-        use_side_chains=False,
-        mpnn_cutoff=False,
-    ):
-        """Extract protein features"""
+        edge_features: torch.Tensor,
+        node_features: torch.Tensor,
+        num_positional_embeddings: int = 16,
+        num_rbf: int = 16,
+        top_k: int = 30,
+        augment_eps: float = 0.0,
+        device: Optional[Any] = None,
+        atom_context_num: int = 16,
+        use_side_chains: bool = False,
+        mpnn_cutoff: bool = False,
+    ) -> None:
+        """Extract protein features
+
+        Args:
+            edge_features: Edge features value.
+            node_features: Node features value.
+            num_positional_embeddings: Number of positional embeddings.
+            num_rbf: Number of rbf.
+            top_k: Top k value.
+            augment_eps: Augment eps value.
+            device: Device used for tensor operations.
+            atom_context_num: Atom context num value.
+            use_side_chains: Use side chains value.
+            mpnn_cutoff: Mpnn cutoff value.
+        """
         super(ProteinFeaturesLigand, self).__init__()
 
         self.use_side_chains = use_side_chains
@@ -677,7 +798,20 @@ class ProteinFeaturesLigand(torch.nn.Module):
             device=device,
         )
 
-    def _make_angle_features(self, A, B, C, Y):
+    def _make_angle_features(
+        self, A: torch.Tensor, B: torch.Tensor, C: torch.Tensor, Y: torch.Tensor
+    ) -> torch.Tensor:
+        """Create angle features.
+
+        Args:
+            A: A value.
+            B: B value.
+            C: C value.
+            Y: Input tensor.
+
+        Returns:
+            Result of the make angle features operation.
+        """
         v1 = A - B
         v2 = C - B
         e1 = torch.nn.functional.normalize(v1, dim=-1)
@@ -703,7 +837,19 @@ class ProteinFeaturesLigand(torch.nn.Module):
         f = torch.cat([f1[..., None], f2[..., None], f3[..., None], f4[..., None]], -1)
         return f
 
-    def _dist(self, X, mask, eps=1e-6):
+    def _dist(
+        self, X: torch.Tensor, mask: torch.Tensor, eps: float = 1e-6
+    ) -> Tuple[Any, ...]:
+        """Execute the dist operation.
+
+        Args:
+            X: Input tensor.
+            mask: Boolean mask for mask.
+            eps: Eps value.
+
+        Returns:
+            Computed result values.
+        """
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
         D = mask_2D * torch.sqrt(torch.sum(dX**2, 3) + eps)
@@ -714,7 +860,15 @@ class ProteinFeaturesLigand(torch.nn.Module):
         )
         return D_neighbors, E_idx
 
-    def _rbf(self, D):
+    def _rbf(self, D: torch.Tensor) -> torch.Tensor:
+        """Execute the rbf operation.
+
+        Args:
+            D: D value.
+
+        Returns:
+            Result of the rbf operation.
+        """
         device = D.device
         D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
         D_mu = torch.linspace(D_min, D_max, D_count, device=device)
@@ -724,7 +878,19 @@ class ProteinFeaturesLigand(torch.nn.Module):
         RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
         return RBF
 
-    def _get_rbf(self, A, B, E_idx):
+    def _get_rbf(
+        self, A: torch.Tensor, B: torch.Tensor, E_idx: torch.Tensor
+    ) -> torch.Tensor:
+        """Return rbf.
+
+        Args:
+            A: A value.
+            B: B value.
+            E_idx: E idx value.
+
+        Returns:
+            Result of the get rbf operation.
+        """
         D_A_B = torch.sqrt(
             torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
         )  # [B, L, L]
@@ -734,8 +900,15 @@ class ProteinFeaturesLigand(torch.nn.Module):
         RBF_A_B = self._rbf(D_A_B_neighbors)
         return RBF_A_B
 
-    def forward(self, input_features):
+    def forward(self, input_features: torch.Tensor) -> Tuple[Any, ...]:
+        """Run the forward pass.
 
+        Args:
+            input_features: Input features value.
+
+        Returns:
+            Computed result values.
+        """
         X = input_features["X"]
         mask = input_features["mask"]
         R_idx = input_features["R_idx"]
@@ -915,9 +1088,26 @@ class ProteinFeaturesLigand(torch.nn.Module):
         return V, E, E_idx, Y_nodes, Y_edges, Y_m
 
 
-def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
-    """
-    from ligandmpnn with batch support
+def get_nearest_neighbours(
+    CB: torch.Tensor,
+    mask: torch.Tensor,
+    Y: torch.Tensor,
+    Y_t: torch.Tensor,
+    Y_m: torch.Tensor,
+    number_of_ligand_atoms: torch.Tensor,
+) -> Tuple[Any, ...]:
+    """from ligandmpnn with batch support
+
+    Args:
+        CB: Cb value.
+        mask: Boolean mask for mask.
+        Y: Input tensor.
+        Y_t: Y t value.
+        Y_m: Y m value.
+        number_of_ligand_atoms: Number of ligand atoms value.
+
+    Returns:
+        Computed result values.
     """
     device = CB.device
     batch_size = CB.shape[0]
@@ -979,14 +1169,23 @@ def get_nearest_neighbours(CB, mask, Y, Y_t, Y_m, number_of_ligand_atoms):
 
 
 def compute_ligand_atom(
-    input_dict,
-    batch_dict,
-    number_ligand_atom=10,
-    cutoff_for_score=8.0,
-    mpnn_cutoff=False,
-):
-    """
-    ligandmpnn input features
+    input_dict: torch.Tensor,
+    batch_dict: Dict[str, torch.Tensor],
+    number_ligand_atom: int = 10,
+    cutoff_for_score: float = 8.0,
+    mpnn_cutoff: bool = False,
+) -> Any:
+    """ligandmpnn input features
+
+    Args:
+        input_dict: Input dict value.
+        batch_dict: Batch dict value.
+        number_ligand_atom: Number ligand atom value.
+        cutoff_for_score: Cutoff for score value.
+        mpnn_cutoff: Mpnn cutoff value.
+
+    Returns:
+        Result of the compute ligand atom operation.
     """
     device = input_dict["X"].device
     batch_size = input_dict["X"].size(0)
@@ -1035,7 +1234,21 @@ def compute_ligand_atom(
     return input_dict
 
 
-def dense_input(batch_dict, number_ligand_atom=False, mpnn_cutoff=False):
+def dense_input(
+    batch_dict: Dict[str, torch.Tensor],
+    number_ligand_atom: bool = False,
+    mpnn_cutoff: bool = False,
+) -> Any:
+    """Execute the dense input operation.
+
+    Args:
+        batch_dict: Batch dict value.
+        number_ligand_atom: Number ligand atom value.
+        mpnn_cutoff: Mpnn cutoff value.
+
+    Returns:
+        Result of the dense input operation.
+    """
     batch_size = batch_dict["residue_token"].size(0)
     all_batch_index = batch_dict["batch_index"].long()
     if all_batch_index.numel() == 0:
@@ -1114,10 +1327,14 @@ def dense_input(batch_dict, number_ligand_atom=False, mpnn_cutoff=False):
 
 
 class DihedralFeatures(nn.Module):
-    def __init__(self, node_embed_dim):
-        """
-        Embed dihedral angle features.
+    """Implement the dihedral features component."""
+
+    def __init__(self, node_embed_dim: int) -> None:
+        """Embed dihedral angle features.
         adapt from: https://github.com/facebookresearch/esm
+
+        Args:
+            node_embed_dim: Dimension for node embed.
         """
         super(DihedralFeatures, self).__init__()
         # 3 dihedral angles; sin and cos of each angle
@@ -1125,15 +1342,34 @@ class DihedralFeatures(nn.Module):
         # Normalization and embedding
         self.node_embedding = nn.Linear(node_in, node_embed_dim, bias=True)
 
-    def forward(self, X):
-        """Featurize coordinates as an attributed graph"""
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """Featurize coordinates as an attributed graph
+
+        Args:
+            X: Input tensor.
+
+        Returns:
+            Computed tensor values.
+        """
         V = self._dihedrals(X)
         V = self.node_embedding(V)
         return V
 
     @staticmethod
-    def _dihedrals(X, eps=1e-7, return_angles=False):
+    def _dihedrals(
+        X: torch.Tensor, eps: float = 1e-7, return_angles: bool = False
+    ) -> torch.Tensor:
         # First 3 coordinates are N, CA, C
+        """Execute the dihedrals operation.
+
+        Args:
+            X: Input tensor.
+            eps: Eps value.
+            return_angles: Return angles value.
+
+        Returns:
+            Result of the dihedrals operation.
+        """
         X = X[:, :, :3, :].reshape(X.shape[0], 3 * X.shape[1], 3)
 
         # Shifted slices of unit vectors
@@ -1165,6 +1401,8 @@ class DihedralFeatures(nn.Module):
 
 
 class BackboneEncoder(nn.Module):
+    """Implement the backbone encoder component."""
+
     def __init__(
         self,
         dim: int,
@@ -1175,13 +1413,26 @@ class BackboneEncoder(nn.Module):
         augment_eps: float,
         backbone_diheral: bool = False,
         number_ligand_atom: int = 0,
-        mpnn_cutoff=False,
-    ):
+        mpnn_cutoff: bool = False,
+    ) -> None:
+        """Initialize the BackboneEncoder.
+
+        Args:
+            dim: Dimension for dim.
+            hidden_dim: Dimension for hidden.
+            num_positional_embeddings: Number of positional embeddings.
+            num_rbf: Number of rbf.
+            top_k: Top k value.
+            augment_eps: Augment eps value.
+            backbone_diheral: Backbone diheral value.
+            number_ligand_atom: Number ligand atom value.
+            mpnn_cutoff: Mpnn cutoff value.
+        """
         super().__init__()
         self.dim = dim
         self.number_ligand_atom = number_ligand_atom
         self.residue_token_embedding = nn.Embedding(
-            num_residue_tokens, hidden_dim
+            NUM_RESIDUE_TOKENS, hidden_dim
         )  # embedding all residue type include ligand
         self.timestep_emb = FourierEmbedding(hidden_dim)
         self.mpnn_cutoff = mpnn_cutoff
@@ -1210,8 +1461,15 @@ class BackboneEncoder(nn.Module):
         else:
             self.proj = TransitionBlock(dim, input_dim=1 * hidden_dim)
 
-    def forward(self, batch_dict: dict):
+    def forward(self, batch_dict: Dict[str, torch.Tensor]) -> Tuple[Any, ...]:
+        """Run the forward pass.
 
+        Args:
+            batch_dict: Batch dict value.
+
+        Returns:
+            Computed result values.
+        """
         batch_size = batch_dict["residue_token"].size(0)
         all_batch_index = batch_dict["batch_index"].long()
         if all_batch_index.numel() == 0:

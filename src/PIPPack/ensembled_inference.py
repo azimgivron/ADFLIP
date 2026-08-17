@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import glob
 import logging
 import os
@@ -5,11 +7,12 @@ import pickle
 
 import hydra
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
 
 torch.cuda.empty_cache()
-from typing import *
+from typing import Any, Dict, Sequence
 
 import lightning
 
@@ -32,14 +35,34 @@ except:
     from PIPPack.utils.train_utils import load_checkpoint
 
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 @torch.no_grad()
 def sample_epoch(
-    ensemble, batch, temperature, device, n_recycle=0, resample=False, resample_args={}
-):
+    ensemble: Sequence[nn.Module],
+    batch: Any,
+    temperature: float,
+    device: torch.device,
+    n_recycle: int = 0,
+    resample: bool = False,
+    resample_args: Dict[str, Any] = {},
+) -> Dict[str, Any]:
     # Sampling epoch
+    """Sample epoch.
+
+    Args:
+        ensemble: Ensemble value.
+        batch: Batch value.
+        temperature: Temperature value.
+        device: Device used for tensor operations.
+        n_recycle: Number of recycle.
+        resample: Resample value.
+        resample_args: Resample args value.
+
+    Returns:
+        Computed result mapping.
+    """
     model_logits = []
     for model in ensemble:
         model.eval()
@@ -99,7 +122,7 @@ def sample_epoch(
 
     # Construct final atom14 coordinates
     aatype_chi_mask = torch.tensor(
-        rc.chi_mask_atom14, dtype=torch.float32, device=chi_pred.device
+        rc.CHI_MASK_ATOM14, dtype=torch.float32, device=chi_pred.device
     )[batch.S]
     chi_pred = aatype_chi_mask * chi_pred
     atom14_xyz = get_atom14_coords(batch.X, batch.S, batch.BB_D, chi_pred)
@@ -140,8 +163,13 @@ def sample_epoch(
 )
 def main(cfg: DictConfig) -> None:
     # Set up RNG and device
+    """Run the command-line entry point.
+
+    Args:
+        cfg: Configuration values.
+    """
     seed = lightning.seed_everything(cfg.inference.seed)
-    logger.info(f"Using seed={seed} for RNG.")
+    LOGGER.info(f"Using seed={seed} for RNG.")
     device = torch.device(
         "cuda:0"
         if (torch.cuda.is_available() and not cfg.inference.force_cpu)
@@ -261,7 +289,3 @@ def main(cfg: DictConfig) -> None:
                 os.path.join(cfg.inference.output_dir, protein_name + ".pdb"), "w"
             ) as f:
                 f.write(protein_string)
-
-
-if __name__ == "__main__":
-    main()

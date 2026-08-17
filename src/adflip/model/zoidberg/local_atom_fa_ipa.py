@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 
@@ -15,7 +17,15 @@ class LocalAtomFAIPA(nn.Module):
 
     def __init__(
         self, dim: int, num_heads: int, k: int, max_distance_ang: float = 32.0
-    ):
+    ) -> None:
+        """Initialize the LocalAtomFAIPA.
+
+        Args:
+            dim: Dimension for dim.
+            num_heads: Number of heads.
+            k: K value.
+            max_distance_ang: Max distance ang value.
+        """
         super().__init__()
         self.num_heads = num_heads
         self.dim = dim
@@ -31,13 +41,26 @@ class LocalAtomFAIPA(nn.Module):
     # @torch.compile
     def forward(
         self,
-        x,
-        knn_graph_indices,
-        positions,
-        frame_positions,
-        distance_matrix,
-        not_pad_mask,
-    ):
+        x: torch.Tensor,
+        knn_graph_indices: torch.Tensor,
+        positions: torch.Tensor,
+        frame_positions: torch.Tensor,
+        distance_matrix: torch.Tensor,
+        not_pad_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run the forward pass.
+
+        Args:
+            x: Input tensor.
+            knn_graph_indices: Knn graph indices value.
+            positions: Positions value.
+            frame_positions: Frame positions value.
+            distance_matrix: Distance matrix value.
+            not_pad_mask: Boolean mask for not pad.
+
+        Returns:
+            Computed tensor values.
+        """
         B, N, _ = positions.shape
 
         # distance_emb = self.distance_embedding(distance_matrix)

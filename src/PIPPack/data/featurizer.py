@@ -1,4 +1,6 @@
-from typing import *
+from __future__ import annotations
+
+from typing import Mapping, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -18,16 +20,19 @@ Array = Union[np.ndarray, torch.Tensor]
 
 # TODO: Make all operations function on Arrays
 class Featurizer(object):
+    """Implement the featurizer component."""
+
     def __init__(self) -> None:
 
         # TODO: Make this dynamic based on config
         # Note: Any feature not included in this dictionary will have a
         # pad value of 0
+        """Initialize the Featurizer."""
         self.default_pad_values = {
             "name": "",
             "length": None,
             "sequence": "X",
-            "aatype": rc.restype_num,
+            "aatype": rc.RESTYPE_NUM,
             "residue_index": -1,
             "sc_dihedrals_bin": 36,
         }
@@ -36,6 +41,14 @@ class Featurizer(object):
         # TODO: Make the computed features dynamic based on the config
 
         # Adjust protein based on residue_index
+        """Evaluate the callable object.
+
+        Args:
+            protein: Protein value.
+
+        Returns:
+            Result of the call operation.
+        """
         protein = self._adjust_features_for_residue_index(protein)
 
         # Get the desired features
@@ -80,12 +93,20 @@ class Featurizer(object):
     def _adjust_features_for_residue_index(self, protein: FeatureDict) -> FeatureDict:
 
         # Adjust residue_index based on total chain length (including missing residues)
+        """Execute the adjust features for residue index operation.
+
+        Args:
+            protein: Protein value.
+
+        Returns:
+            Result of the adjust features for residue index operation.
+        """
         adj_len = max(protein["residue_index"]) - min(protein["residue_index"]) + 1
         indexer = protein["residue_index"] - min(protein["residue_index"])
         residue_index = np.arange(adj_len, dtype=np.int32)
 
         # Recreate aatype and sequence with unknown (i.e. 20 or X) at nonexistent residues
-        aatype = np.full((adj_len,), fill_value=rc.unk_restype_index, dtype=np.int32)
+        aatype = np.full((adj_len,), fill_value=rc.UNK_RESTYPE_INDEX, dtype=np.int32)
         aatype[indexer] = protein["aatype"]
         sequence = np.full((adj_len,), fill_value="X")
         sequence[indexer] = list(protein["sequence"])
@@ -119,9 +140,18 @@ class Featurizer(object):
         return protein
 
     @staticmethod
-    def _calc_dihedrals(atom_positions: Array, eps=1e-8) -> Array:
+    def _calc_dihedrals(atom_positions: Array, eps: float = 1e-8) -> Array:
 
         # Unit vectors
+        """Calculate dihedrals.
+
+        Args:
+            atom_positions: Atom positions value.
+            eps: Eps value.
+
+        Returns:
+            Computed tensor values.
+        """
         uvecs = robust_normalize(
             atom_positions[..., 1:, :] - atom_positions[..., :-1, :], eps=eps
         )
@@ -162,6 +192,17 @@ class Featurizer(object):
     ) -> Union[Array, Tuple[Array, Array]]:
 
         # Get backbone coordinates (and reshape). First 3 coordinates are N, CA, C
+        """Calculate bb dihedrals.
+
+        Args:
+            atom_positions: Atom positions value.
+            residue_index: Residue index value.
+            use_pre_omega: Use pre omega value.
+            return_mask: Boolean mask for return.
+
+        Returns:
+            Computed tensor values.
+        """
         bb_atom_positions = atom_positions[:, :3].reshape(
             (3 * atom_positions.shape[0], 3)
         )
@@ -261,14 +302,24 @@ class Featurizer(object):
     ) -> Union[Array, Tuple[Array, Array]]:
 
         # Make sure atom_positions and aatype are same class
+        """Calculate sc dihedrals.
+
+        Args:
+            atom_positions: Atom positions value.
+            aatype: Aatype value.
+            return_mask: Boolean mask for return.
+
+        Returns:
+            Computed tensor values.
+        """
         assert type(atom_positions) == type(aatype)
 
         # Get atom indicies for atoms that make up chi angles and chi mask
         if isinstance(atom_positions, np.ndarray):
-            chi_atom_indices = np.array(rc.chi_atom_indices_atom14, dtype=np.int32)[
+            chi_atom_indices = np.array(rc.CHI_ATOM_INDICES_ATOM14, dtype=np.int32)[
                 aatype
             ]
-            chi_mask = np.array(rc.chi_mask_atom14, dtype=np.float32)[aatype]
+            chi_mask = np.array(rc.CHI_MASK_ATOM14, dtype=np.float32)[aatype]
 
             # Get coordinates for chi atoms
             chi_atom_positions = np.take_along_axis(
@@ -276,10 +327,10 @@ class Featurizer(object):
             )
         else:
             chi_atom_indices = torch.from_numpy(
-                np.array(rc.chi_atom_indices_atom14, dtype=np.int32)
+                np.array(rc.CHI_ATOM_INDICES_ATOM14, dtype=np.int32)
             ).to(aatype.device)[aatype]
             chi_mask = torch.from_numpy(
-                np.array(rc.chi_mask_atom14, dtype=np.float32)
+                np.array(rc.CHI_MASK_ATOM14, dtype=np.float32)
             ).to(aatype.device)[aatype]
 
             # Get coordinates for chi atoms
@@ -306,6 +357,14 @@ class Featurizer(object):
             return sc_dihedrals
 
     def _sincos_encoding(self, array: np.ndarray) -> np.ndarray:
+        """Execute the sincos encoding operation.
+
+        Args:
+            array: Array value.
+
+        Returns:
+            Result of the sincos encoding operation.
+        """
         return np.stack((np.sin(array), np.cos(array)), axis=-1)
 
     def _bin_encoding(
@@ -319,6 +378,19 @@ class Featurizer(object):
     ) -> np.ndarray:
 
         # Determine the bin for each value
+        """Execute the bin encoding operation.
+
+        Args:
+            array: Array value.
+            a_min: A min value.
+            a_max: A max value.
+            n_bins: Number of bins.
+            extra_bin_for_nan: Extra bin for nan value.
+            return_offset: Return offset value.
+
+        Returns:
+            Result of the bin encoding operation.
+        """
         bins = np.arange(a_min, a_max, (a_max - a_min) / n_bins, dtype=np.float32)
         binned_array = np.argmin(np.abs(array[..., None] - bins), axis=-1)
         if extra_bin_for_nan:
@@ -335,6 +407,16 @@ class Featurizer(object):
     def _dihedral_bin_encoding(
         self, array: np.ndarray, n_bins: int, return_offset: bool = False
     ) -> np.ndarray:
+        """Execute the dihedral bin encoding operation.
+
+        Args:
+            array: Array value.
+            n_bins: Number of bins.
+            return_offset: Return offset value.
+
+        Returns:
+            Result of the dihedral bin encoding operation.
+        """
         return self._bin_encoding(
             array,
             a_min=-np.pi,
@@ -345,6 +427,14 @@ class Featurizer(object):
         )
 
     def _bb_exists(self, atom_positions: np.ndarray) -> np.ndarray:
+        """Execute the bb exists operation.
+
+        Args:
+            atom_positions: Atom positions value.
+
+        Returns:
+            Result of the bb exists operation.
+        """
         return np.isfinite(np.sum(atom_positions[:, :4], axis=(-1, -2))).astype(
             np.float32
         )
@@ -355,10 +445,19 @@ class Featurizer(object):
     ) -> np.ndarray:
 
         # Load default chi_mask based on sequence alone.
-        chi_mask = np.array(rc.chi_mask_atom14, dtype=np.float32)[aatype]  # [..., N, 4]
+        """Execute the chi mask from b factors operation.
+
+        Args:
+            aatype: Aatype value.
+            b_factors: B factors value.
+
+        Returns:
+            Result of the chi mask from b factors operation.
+        """
+        chi_mask = np.array(rc.CHI_MASK_ATOM14, dtype=np.float32)[aatype]  # [..., N, 4]
 
         # Get atom14 indices for chi atoms
-        chi_atom_indices = np.array(rc.chi_atom_indices_atom14, dtype=np.int32)[aatype]
+        chi_atom_indices = np.array(rc.CHI_ATOM_INDICES_ATOM14, dtype=np.int32)[aatype]
         chi_atom_indices = np.stack(
             [
                 chi_atom_indices[:, :4],
@@ -383,8 +482,17 @@ class Featurizer(object):
         return chi_mask.astype(np.float32)
 
 
-def _calc_dihedrals(atom_positions: torch.Tensor, eps=1e-6) -> torch.Tensor:
+def _calc_dihedrals(atom_positions: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     # Unit vectors
+    """Calculate dihedrals.
+
+    Args:
+        atom_positions: Atom positions value.
+        eps: Eps value.
+
+    Returns:
+        Computed tensor values.
+    """
     uvecs = robust_normalize(
         atom_positions[..., 1:, :] - atom_positions[..., :-1, :], eps=eps
     )
@@ -409,10 +517,20 @@ def calc_sc_dihedrals(
     atom_positions: torch.Tensor, aatype: torch.Tensor, return_mask: bool = True
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
     # Get atom indicies for atoms that make up chi angles and chi mask
-    chi_atom_indices = torch.tensor(rc.chi_atom_indices_atom14).to(aatype.device)[
+    """Calculate sc dihedrals.
+
+    Args:
+        atom_positions: Atom positions value.
+        aatype: Aatype value.
+        return_mask: Boolean mask for return.
+
+    Returns:
+        Computed tensor values.
+    """
+    chi_atom_indices = torch.tensor(rc.CHI_ATOM_INDICES_ATOM14).to(aatype.device)[
         aatype
     ]
-    chi_mask = torch.tensor(rc.chi_mask_atom14).to(aatype.device)[aatype]
+    chi_mask = torch.tensor(rc.CHI_MASK_ATOM14).to(aatype.device)[aatype]
 
     # Get coordinates for chi atoms
     chi_atom_positions = torch.gather(
@@ -439,12 +557,22 @@ def chi_mask_from_b_factors(
     aatype: torch.Tensor, b_factors: torch.Tensor, b_factor_cutoff: float = 40
 ) -> torch.Tensor:
     # Load default chi_mask based on sequence alone.
-    chi_mask = torch.tensor(rc.chi_mask_atom14, device=aatype.device)[
+    """Execute the chi mask from b factors operation.
+
+    Args:
+        aatype: Aatype value.
+        b_factors: B factors value.
+        b_factor_cutoff: B factor cutoff value.
+
+    Returns:
+        Computed tensor values.
+    """
+    chi_mask = torch.tensor(rc.CHI_MASK_ATOM14, device=aatype.device)[
         aatype
     ]  # [..., N, 4]
 
     # Get atom14 indices for chi atoms
-    chi_atom_indices = torch.tensor(rc.chi_atom_indices_atom14, device=aatype.device)[
+    chi_atom_indices = torch.tensor(rc.CHI_ATOM_INDICES_ATOM14, device=aatype.device)[
         aatype
     ]
     chi_atom_indices = torch.stack(

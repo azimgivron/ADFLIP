@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import glob
 import multiprocessing as mp
 import os
 from pathlib import Path
+from typing import Optional
 
 from tqdm import tqdm
 
@@ -11,7 +14,12 @@ from adflip.data.all_atom_parse import dump_structure_data
 from adflip.data.residue_config import configure as configure_residues
 
 
-def process_file(raw_data):
+def process_file(raw_data: str) -> None:
+    """Process file.
+
+    Args:
+        raw_data: Raw data value.
+    """
     try:
         data = aap.parse_or_load_mmcif(raw_data, ion_center=False, ligand_center=False)
         input_path = Path(raw_data)
@@ -28,7 +36,12 @@ def process_file(raw_data):
         print(f"Error processing {raw_data}: {str(e)}")
 
 
-def main(data_path=None):
+def main(data_path: Optional[str] = None) -> None:
+    """Run the command-line entry point.
+
+    Args:
+        data_path: Path for data.
+    """
     if data_path is None:
         parser = argparse.ArgumentParser()
         parser.add_argument(
@@ -59,7 +72,3 @@ def main(data_path=None):
             pool.imap_unordered(process_file, raw_data_list), total=len(raw_data_list)
         ):
             pass
-
-
-if __name__ == "__main__":
-    main()

@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import csv
 import importlib
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import numpy as np
 from tqdm import tqdm
 
 
 def _load_token_tables() -> Tuple[Dict[int, str], Dict[str, str], str]:
-    """
-    Load residue-token tables from parser modules.
+    """Load residue-token tables from parser modules.
     We try the Biopython parser first, then the legacy parser.
+
+    Returns:
+        Computed result values.
     """
     module_names = [
         "adflip.data.all_atom_parse_biopython",
@@ -22,7 +26,7 @@ def _load_token_tables() -> Tuple[Dict[int, str], Dict[str, str], str]:
     for mod_name in module_names:
         try:
             mod = importlib.import_module(mod_name)
-            return mod.index_to_token, mod.restype_3to1, mod_name
+            return mod.INDEX_TO_TOKEN, mod.RESTYPE_3TO1, mod_name
         except Exception as exc:  # pragma: no cover - diagnostic path
             errors.append(f"{mod_name}: {exc}")
     raise RuntimeError(
@@ -31,16 +35,40 @@ def _load_token_tables() -> Tuple[Dict[int, str], Dict[str, str], str]:
 
 
 def _list_npz_files(parsed_dir: Path) -> List[Path]:
+    """Execute the list npz files operation.
+
+    Args:
+        parsed_dir: Path for parsed.
+
+    Returns:
+        Computed result items.
+    """
     return sorted(parsed_dir.rglob("*.npz"))
 
 
-def _as_python_obj(x):
+def _as_python_obj(x: Any) -> Any:
+    """Execute the as python obj operation.
+
+    Args:
+        x: Input tensor.
+
+    Returns:
+        Result of the as python obj operation.
+    """
     if isinstance(x, np.ndarray) and x.shape == ():
         return x.item()
     return x
 
 
-def _coerce_chain_index_map(npz_obj) -> Dict[int, str]:
+def _coerce_chain_index_map(npz_obj: Any) -> Dict[int, str]:
+    """Execute the coerce chain index map operation.
+
+    Args:
+        npz_obj: Npz obj value.
+
+    Returns:
+        Computed result mapping.
+    """
     if "asym_id_to_chain_index" not in npz_obj.files:
         return {}
 
@@ -60,7 +88,15 @@ def _coerce_chain_index_map(npz_obj) -> Dict[int, str]:
     return out
 
 
-def _coerce_assemblies(npz_obj) -> Tuple[List[str], List[List[int]]]:
+def _coerce_assemblies(npz_obj: Any) -> Tuple[List[str], List[List[int]]]:
+    """Execute the coerce assemblies operation.
+
+    Args:
+        npz_obj: Npz obj value.
+
+    Returns:
+        Computed result values.
+    """
     if "asmb_ids" not in npz_obj.files or "asmb_chain_indices" not in npz_obj.files:
         return [], []
 
@@ -95,6 +131,17 @@ def _iter_chain_tokens(
     chain_id: np.ndarray,
     is_protein: np.ndarray,
 ) -> Dict[int, List[int]]:
+    """Execute the iter chain tokens operation.
+
+    Args:
+        residue_index: Residue index value.
+        residue_token: Residue token value.
+        chain_id: Chain id value.
+        is_protein: Is protein value.
+
+    Returns:
+        Computed result mapping.
+    """
     chain_tokens: Dict[int, List[int]] = {}
     seen_residues = set()
 
@@ -112,7 +159,19 @@ def _iter_chain_tokens(
     return chain_tokens
 
 
-def _tokens_to_sequence(tokens: Iterable[int], index_to_token, restype_3to1) -> str:
+def _tokens_to_sequence(
+    tokens: Iterable[int], index_to_token: Dict[int, str], restype_3to1: Dict[str, str]
+) -> str:
+    """Execute the tokens to sequence operation.
+
+    Args:
+        tokens: Tokens value.
+        index_to_token: Index to token value.
+        restype_3to1: Restype 3to1 value.
+
+    Returns:
+        Result of the tokens to sequence operation.
+    """
     seq_chars = []
     for tok in tokens:
         residue_name = index_to_token.get(int(tok), "<UNK>")
@@ -126,6 +185,14 @@ def export_sequences(
     metadata_out: Path,
     min_len: int,
 ) -> None:
+    """Execute the export sequences operation.
+
+    Args:
+        parsed_dir: Path for parsed.
+        fasta_out: Fasta out value.
+        metadata_out: Metadata out value.
+        min_len: Min len value.
+    """
     index_to_token, restype_3to1, token_module = _load_token_tables()
     npz_files = _list_npz_files(parsed_dir)
     if not npz_files:
@@ -208,7 +275,8 @@ def export_sequences(
     print(f"META : {metadata_out}")
 
 
-def main():
+def main() -> None:
+    """Run the command-line entry point."""
     parser = argparse.ArgumentParser(
         description="Export chain-level protein sequences from parsed .npz files."
     )
@@ -244,7 +312,3 @@ def main():
         metadata_out=args.metadata_out,
         min_len=args.min_len,
     )
-
-
-if __name__ == "__main__":
-    main()
