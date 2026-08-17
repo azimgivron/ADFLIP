@@ -54,7 +54,7 @@ requires-dist = [
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform != 'linux'", specifier = "==2.4.1" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==2.4.1", index = "https://download.pytorch.org/whl/cu118" },
     { name = "torch-cluster", specifier = ">=1.6.3" },
-    { name = "torch-geometric", specifier = ">=2.5.3" },
+    { name = "torch-geometric", specifier = ">=2.5.3,<2.8" },
     { name = "torchmetrics", specifier = ">=1.0" },
     { name = "tqdm", specifier = ">=4.66.5" },
 ]

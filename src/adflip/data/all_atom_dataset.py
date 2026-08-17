@@ -697,9 +697,11 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             self.structs = [
                 os.path.join(cfg.data_path, x + ".cif.gz") for x in self.all_pdb
             ]
-        struct_count = f"{len(self.structs):,}".replace(",", ".")
+        formatting = lambda x: f"{x:,}".replace(",", ".")
+        struct_count = formatting(len(self.structs))
+        unique = formatting(len(set(self.structs)))
         print(
-            f"Dataset {dataset_type} contains {struct_count} structures, {len(set(self.structs))} unique PDB IDs"
+            f"Dataset {dataset_type} contains {struct_count} structures, {unique} unique PDB IDs"
         )
 
     def __len__(self) -> int:
