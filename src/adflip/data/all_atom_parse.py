@@ -123,43 +123,6 @@ AF3_LIGANDS_EXCLUDED = set(AF3_LIGANDS_EXCLUDED)
 AF3_GLYCANS = _read_misc_lines("af3_glycans.txt")
 AF3_GLYCANS = set(AF3_GLYCANS)
 
-_LEGACY_CONSTANT_NAMES = {
-    "restype_1to3": "RESTYPE_1TO3",
-    "restype_3to1": "RESTYPE_3TO1",
-    "residue_tokens": "RESIDUE_TOKENS",
-    "token_to_index": "TOKEN_TO_INDEX",
-    "index_to_token": "INDEX_TO_TOKEN",
-    "num_residue_tokens": "NUM_RESIDUE_TOKENS",
-    "nucleotide_residues": "NUCLEOTIDE_RESIDUES",
-    "ion_residues": "ION_RESIDUES",
-    "elements": "ELEMENTS",
-    "element_to_index": "ELEMENT_TO_INDEX",
-    "num_element_tokens": "NUM_ELEMENT_TOKENS",
-    "af3_crystallization_aids": "AF3_CRYSTALLIZATION_AIDS",
-    "af3_ligands_excluded": "AF3_LIGANDS_EXCLUDED",
-    "af3_glycans": "AF3_GLYCANS",
-    "structure_data_fields": "STRUCTURE_DATA_FIELDS",
-    "pad_constants": "PAD_CONSTANTS",
-}
-
-
-def __getattr__(name: str) -> Any:
-    """Resolve legacy lowercase constant names.
-
-    Args:
-        name: Requested module attribute name.
-
-    Returns:
-        Value of the corresponding uppercase constant.
-
-    Raises:
-        AttributeError: If the requested name is not a legacy constant.
-    """
-    constant_name = _LEGACY_CONSTANT_NAMES.get(name)
-    if constant_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    return globals()[constant_name]
-
 
 def get_token_index(token: Any) -> Any:
     """Return token index.
