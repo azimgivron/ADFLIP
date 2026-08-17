@@ -1069,7 +1069,15 @@ def load_structure_data(path: str) -> StructureData:
     for k in struct_data.files:
         if k not in field_names:
             val = struct_data[k]
-            if isinstance(val, np.ndarray) and val.dtype.kind == "O" and val.size == 1:
+            if k == "asmb_chain_indices":
+                # Preserve the outer assembly dimension, including for a single
+                # assembly. Generic singleton unwrapping would turn [[0]] into [0].
+                val = val.tolist()
+            elif (
+                isinstance(val, np.ndarray)
+                and val.dtype.kind == "O"
+                and val.size == 1
+            ):
                 val = val.item()
             setattr(data, k, val)
     return data

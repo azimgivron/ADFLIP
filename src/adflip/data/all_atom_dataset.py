@@ -13,7 +13,6 @@ import torch
 import torch.utils
 import torch.utils.data
 from scipy.spatial import cKDTree
-from tqdm import tqdm
 
 from adflip.data import all_atom_parse as aap
 from adflip.data.all_atom_parse import RESIDUE_TOKENS, StructureData
@@ -698,8 +697,9 @@ class Cluster_AllAtomDataset(AllAtomDataset):
             self.structs = [
                 os.path.join(cfg.data_path, x + ".cif.gz") for x in self.all_pdb
             ]
+        struct_count = f"{len(self.structs):,}".replace(",", ".")
         print(
-            f"Dataset {dataset_type} contains {len(self.structs)} structures, {len(set(self.structs))} unique PDB IDs"
+            f"Dataset {dataset_type} contains {struct_count} structures, {len(set(self.structs))} unique PDB IDs"
         )
 
     def __len__(self) -> int:
